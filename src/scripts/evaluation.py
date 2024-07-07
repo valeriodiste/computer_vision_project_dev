@@ -8,11 +8,11 @@ from sklearn.metrics.pairwise import cosine_similarity
 # Import custom modules
 try:
 	from src.scripts import datasets
-	from src.scripts.utils import MODEL_TYPES, RANDOM_SEED
+	from src.scripts.utils import RANDOM_SEED
 	from tqdm import tqdm
 except ModuleNotFoundError:
 	from computer_vision_project_dev.src.scripts import datasets
-	from computer_vision_project_dev.src.scripts.utils import MODEL_TYPES, RANDOM_SEED
+	from computer_vision_project_dev.src.scripts.utils import RANDOM_SEED
 	from tqdm.notebook import tqdm
 
 # Seed random number generators for reproducibility

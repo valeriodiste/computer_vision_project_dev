@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, random_split
 try:
 	from src.scripts.utils import RANDOM_SEED
 except ModuleNotFoundError:
-	from computer_vision_project.src.scripts.utils import RANDOM_SEED
+	from computer_vision_project_dev.src.scripts.utils import RANDOM_SEED
 
 # Seed random number generators for reproducibility
 torch.manual_seed(RANDOM_SEED)

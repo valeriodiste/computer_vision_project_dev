@@ -14,7 +14,7 @@ try:
 	from src.scripts.utils import RANDOM_SEED
 	from tqdm import tqdm
 except ModuleNotFoundError:
-	from computer_vision_project.src.scripts.utils import RANDOM_SEED
+	from computer_vision_project_dev.src.scripts.utils import RANDOM_SEED
 	from tqdm.notebook import tqdm
 
 # Seed random number generators for reproducibility

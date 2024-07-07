@@ -17,8 +17,8 @@ try:
 	from src.scripts import datasets
 	from src.scripts.utils import RANDOM_SEED
 except ModuleNotFoundError:
-	from computer_vision_project.src.scripts import datasets
-	from computer_vision_project.src.scripts.utils import RANDOM_SEED
+	from computer_vision_project_dev.src.scripts import datasets
+	from computer_vision_project_dev.src.scripts.utils import RANDOM_SEED
 
 # Seed random number generators for reproducibility
 np.random.seed(RANDOM_SEED)

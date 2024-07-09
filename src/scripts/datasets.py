@@ -132,6 +132,7 @@ class TransformerImageRetrievalDataset(Dataset):
 	def __init__(
 		self,
 		images: list,
+		classes: dict,
 		img_patches: int = 10,
 		patch_size: int = 16,
 		img_id_max_length: int = -1,
@@ -143,6 +144,7 @@ class TransformerImageRetrievalDataset(Dataset):
 
 		Args:
 		- images: list, a list containing the images data, the images database
+		- classes: dict, a dictionary containing the classes data (with, for each class/category, a list of image ids with that image class/category)
 		- img_patches: int, the number of patches per dimension for each image
 		- patch_size: int, the size of the image patches
 		- img_id_max_length: int, the maximum length of the image IDs sequence

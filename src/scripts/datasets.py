@@ -11,7 +11,7 @@ import sys
 from torch.nn import functional
 # Import custom modules
 try:
-	from src.scripts.utils import RANDOM_SEED, get_image_from_db_object	 # type: ignore
+	from src.scripts.utils import RANDOM_SEED, get_image_from_b64_string	 # type: ignore
 	from tqdm import tqdm
 except ModuleNotFoundError:
 	from computer_vision_project_dev.src.scripts.utils import RANDOM_SEED, get_image_from_db_object # type: ignore
@@ -90,7 +90,7 @@ class TransformerIndexingDataset(Dataset):
 				# Get the image object from the images dictionary
 				image_obj = self.images[image_id]
 				# Load the image from the image object
-				image = get_image_from_db_object(image_obj) # Image is returned as a cv2 image object
+				image = get_image_from_b64_string(image_obj) # Image is returned as a cv2 image object
 				# Encode the image into a torch tensor of shape [C, H, W], where C is the number of channels (e.g. 3 for RGB), H is the height, and W is the width
 				encoded_img = torch.tensor(image).permute(2, 0, 1)
 				# Encode the image ID
@@ -192,7 +192,7 @@ class TransformerImageRetrievalDataset(Dataset):
 				# Get the image object from the images dictionary
 				image_obj = self.images[image_id]
 				# Load the image from the image object
-				image = get_image_from_db_object(image_obj) # Image is returned as a cv2 image object
+				image = get_image_from_b64_string(image_obj) # Image is returned as a cv2 image object
 				# Encode the image into a torch tensor of shape [C, H, W], where C is the number of channels (e.g. 3 for RGB), H is the height, and W is the width
 				encoded_img = torch.tensor(image).permute(2, 0, 1)
 				# Encode the image ID

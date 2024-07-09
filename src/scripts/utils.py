@@ -5,6 +5,7 @@ from nltk.corpus import stopwords
 import numpy as np
 import base64
 import cv2
+from skimage import io
 
 # Random seed for reproducibility
 RANDOM_SEED = 1
@@ -76,12 +77,44 @@ def print_model_evaluation_results(map_k_evaluation_results=None, recall_k_evalu
 		print(f"No Recall@K evaluation results for the model")
 
 # Function to get the actual image (viewable using "plt.imgshow(image)") given the image object in the "images_db" list
-def get_image_from_db_object(image_obj):
+def get_image_from_b64_string(b64_string):
 	'''
 	Returns the image as a cv2 image object from the given image object in the "images_db" list
+
+	Parameters:
+		image_obj (dict): The image object in the "images_db" list
+		image_max_size (int): The maximum size of the image used for when (i.e. the max width and the max height of the image, we use square images in this case)
 	'''
 	# Convert the base64 string to an image
-	image_data = base64.b64decode(image_obj["image_data"])
+	image_data = base64.b64decode(b64_string)
 	image_np = np.frombuffer(image_data, np.uint8)
 	image = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
 	return image
+
+# Function that retrieves the actual image data from the image URL, crpps it to a square aspect ratio if necessary, and returns the image data as a base64 string
+def get_image_data_as_base64(image_url, image_max_size):
+	'''
+	Retrieves the actual image data from the image URL, crops it to a square aspect ratio if necessary, and returns the image data as a base64 string
+
+	Parameters:
+		image_url (str): The URL of the image
+		image_max_size (int): The maximum size of the image (i.e. the max width and the max height of the image, we use square images in this case)
+	'''
+	# Load the image
+	image = io.imread(image_url)
+	# Crop the image to a square aspect ratio if it is not already square
+	downscaled_image = image
+	if image.shape[1] > image.shape[0]:
+		# Image is wider than tall, crop the sides
+		crop_width = (image.shape[1] - image.shape[0]) // 2
+		downscaled_image = image[:, crop_width:crop_width+image.shape[0]]
+	elif image.shape[0] > image.shape[1]:
+		# Image is taller than wide, crop the top and bottom
+		crop_height = (image.shape[0] - image.shape[1]) // 2
+		downscaled_image = image[crop_height:crop_height+image.shape[1], :]
+	# Downscale the image to the maximum allowed size
+	downscaled_image = cv2.resize(downscaled_image, (image_max_size, image_max_size))
+	# Convert the image to a base64 string
+	image_base64 = base64.b64encode(cv2.imencode('.jpg', downscaled_image)[1]).decode()
+	# Return the base64 string of the image
+	return image_base64

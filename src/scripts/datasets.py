@@ -94,12 +94,12 @@ class TransformerIndexingDataset(Dataset):
 				# Encode the image into a torch tensor of shape [C, H, W], where C is the number of channels (e.g. 3 for RGB), H is the height, and W is the width
 				encoded_img = torch.tensor(image, dtype=torch.float32).permute(2, 0, 1)
 				# Encode the image ID
-				img_id_padding_length = self.img_id_max_len - len(image_id)	# Padding length: N - M  (with N max digit for each image ID, and M number of digits of the image ID)
+				img_id_padding_length = self.img_id_max_len - len(str(image_id))	# Padding length: N - M  (with N max digit for each image ID, and M number of digits of the image ID)
 				encoded_img_id = torch.tensor(
 					# Start of sequence token
 					[self.img_id_start_token] +
 					# Encoded image ID (list of integers, each representing a digit of the M total digits of the ID)
-					list(map(int, image_id)) +	
+					list(map(int, str(image_id))) +
 					# End of sequence token
 					[self.img_id_end_token] +
 					# Padding tokens (if needed)

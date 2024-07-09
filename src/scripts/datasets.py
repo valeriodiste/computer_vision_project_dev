@@ -131,8 +131,8 @@ class TransformerImageRetrievalDataset(Dataset):
 	# Initialize the dataset of tuples (encoded_imgs, encoded_img_id) for the image retrieval phase (Transformer models learns to map images to relevant image IDs)
 	def __init__(
 		self,
-		images: list,
-		classes: dict,
+		all_images: list,
+		similar_images: dict,
 		img_patches: int = 10,
 		patch_size: int = 16,
 		img_id_max_length: int = -1,
@@ -143,8 +143,8 @@ class TransformerImageRetrievalDataset(Dataset):
 		Constructor of the TransformerImageRetrievalDataset class.
 
 		Args:
-		- images: list, a list containing the images data, the images database
-		- classes: dict, a dictionary containing the classes data (with, for each class/category, a list of image ids with that image class/category)
+		- all_images: list, a list containing the images data, the images database plus the images not in the database (for the retrieval phase)
+		- similar_images: dict, a dictionary containing image IDs (not in the database) as keys and a list of similar image IDs in the database, i.e. in the "images" list, as values
 		- img_patches: int, the number of patches per dimension for each image
 		- patch_size: int, the size of the image patches
 		- img_id_max_length: int, the maximum length of the image IDs sequence
@@ -152,7 +152,9 @@ class TransformerImageRetrievalDataset(Dataset):
 		- force_dataset_rebuild: bool, a flag to force the rebuilding of the dataset (if false, a dataset file path is provided, and the file exists, the dataset will be loaded from the file)
 		'''
 		# Store the images dictionary
-		self.images = images
+		self.images = all_images
+		# Store the similar images dictionary
+		self.similar_images = similar_images
 		# Store the patch and image size
 		self.img_patches = img_patches
 		self.patch_size = patch_size
@@ -186,30 +188,34 @@ class TransformerImageRetrievalDataset(Dataset):
 			# Initialize the encoded images and image IDs lists
 			encoded_relevant_image_ids = []
 			encoded_images = []
-			# For each image in the images list
-			image_ids = range(len(self.images))
-			for image_id in tqdm(image_ids, desc='Building TransformerImageRetrievalDataset'):
-				# Get the image object from the images dictionary
-				image_obj = self.images[image_id]
-				# Load the image from the image object
-				image = get_image_from_b64_string(image_obj) # Image is returned as a cv2 image object
-				# Encode the image into a torch tensor of shape [C, H, W], where C is the number of channels (e.g. 3 for RGB), H is the height, and W is the width
-				encoded_img = torch.tensor(image).permute(2, 0, 1)
-				# Encode the image ID
-				img_id_padding_length = self.img_id_max_len - len(str(image_id))	# Padding length: N - M  (with N max digit for each image ID, and M number of digits of the image ID)
-				encoded_img_id = torch.tensor(
-					# Start of sequence token
-					[self.img_id_start_token] +
-					# Encoded image ID (list of integers, each representing a digit of the M total digits of the ID)
-					list(map(int, str(image_id))) +
-					# End of sequence token
-					[self.img_id_end_token] +
-					# Padding tokens (if needed)
-					[self.img_id_padding_token] * img_id_padding_length
-				)
-				# Add the encoded image and image ID to the lists
-				encoded_images.append(encoded_img)
-				encoded_relevant_image_ids.append(encoded_img_id)
+			# For each image in the images similarity dictionary
+			similar_image_ids = self.similar_images.keys()
+			for similar_image_id in tqdm(similar_image_ids, desc='Building TransformerImageRetrievalDataset'):
+				# get all the similar images for the current image
+				relevant_image_ids = self.similar_images[similar_image_id]
+				# For each relevant image ID (in the database)
+				for image_id in relevant_image_ids:
+					# Get the image object from the images dictionary
+					image_obj = self.images[similar_image_id]
+					# Load the similar image from the image object
+					similar_image = get_image_from_b64_string(image_obj) # Image is returned as a cv2 image object
+					# Encode the image into a torch tensor of shape [C, H, W], where C is the number of channels (e.g. 3 for RGB), H is the height, and W is the width
+					encoded_img = torch.tensor(similar_image).permute(2, 0, 1)
+					# Encode the image ID of the relevant image (in the database)
+					img_id_padding_length = self.img_id_max_len - len(str(image_id))	# Padding length: N - M  (with N max digit for each image ID, and M number of digits of the image ID)
+					encoded_img_id = torch.tensor(
+						# Start of sequence token
+						[self.img_id_start_token] +
+						# Encoded image ID (list of integers, each representing a digit of the M total digits of the ID)
+						list(map(int, str(image_id))) +
+						# End of sequence token
+						[self.img_id_end_token] +
+						# Padding tokens (if needed)
+						[self.img_id_padding_token] * img_id_padding_length
+					)
+					# Add the encoded image and image ID to the lists
+					encoded_images.append(encoded_img)
+					encoded_relevant_image_ids.append(encoded_img_id)
 			# Save the dataset to the file if a save file path is provided
 			if self.save_dataset_file_path is not None:
 				print(f"Saving the Vision Transformer Image Retrieval Dataset to {self.save_dataset_file_path}...")

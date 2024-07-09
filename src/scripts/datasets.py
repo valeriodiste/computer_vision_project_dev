@@ -85,7 +85,7 @@ class TransformerIndexingDataset(Dataset):
 			encoded_image_ids = []
 			encoded_images = []
 			# For each image in the images dictionary
-			for image_id in tqdm(self.images.keys(), desc='Building TransformerIndexingDataset'):
+			for image_id in tqdm(range(len(self.images)), desc='Building TransformerIndexingDataset'):
 				# Get the image object from the images dictionary
 				image_obj = self.images[image_id]
 				# Load the image from the image object

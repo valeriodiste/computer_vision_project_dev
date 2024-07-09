@@ -17,8 +17,8 @@ try:
 	from src.scripts import datasets
 	from src.scripts.utils import RANDOM_SEED
 except ModuleNotFoundError:
-	from computer_vision_project_dev.src.scripts import datasets
-	from computer_vision_project_dev.src.scripts.utils import RANDOM_SEED
+	from computer_vision_project.src.scripts import datasets
+	from computer_vision_project.src.scripts.utils import RANDOM_SEED
 
 # Seed random number generators for reproducibility
 np.random.seed(RANDOM_SEED)
@@ -39,7 +39,8 @@ class PositionalEncoding(nn.Module):
 		self.dropout = nn.Dropout(p=dropout)
 
 		position = torch.arange(max_len).unsqueeze(1)
-		div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+		div_term = torch.exp(torch.arange(0, d_model, 2)
+							* (-math.log(10000.0) / d_model))
 		pe = torch.zeros(max_len, 1, d_model)
 		pe[:, 0, 0::2] = torch.sin(position * div_term)
 		pe[:, 0, 1::2] = torch.cos(position * div_term)
@@ -49,7 +50,17 @@ class PositionalEncoding(nn.Module):
 		x = x + self.pe[:x.size(0)]
 		return self.dropout(x)
 
-class DSI_ViT(pl.LightningModule):
+class DSITransformer(pl.LightningModule):
+
+	# Enum class for the Transformer model types
+	class TRANSFORMER_TYPES:
+		''' Enum class for the Transformer model types '''
+		SCHEDULED_SAMPLING_TRANSFORMER = "Scheduled Sampling Transformer"
+		''' The Transformer model with scheduled sampling to reduce exposure bias (use the "scheduled_sampling_decay" parameter to control the linear decay of the probability of using the ground truth target's token) '''
+		AUTOREGRESSIVE_TRANSFORMER = "Autoregressive Transformer"
+		''' The Transformer model with an autoregressive approach (i.e. generate the sequence token by token using the model's own predictions) '''
+		TEACHER_FORCINIG_TRANSFORMER = "Teacher Forcing Transformer"
+		''' The Transformer model with teacher forcing (i.e. use the ground truth target's token for each prediction) '''
 
 	def __init__(
 			self, tokens_in_vocabulary: int,
@@ -57,6 +68,8 @@ class DSI_ViT(pl.LightningModule):
 			transformer_heads: int, layers: int,
 			dropout: float, learning_rate: float,
 			batch_size: int,
+			transformer_type: TRANSFORMER_TYPES,
+			scheduled_sampling_decay: float = 0.05
 	):
 		'''
 		Constructor of the DSITransformer class.
@@ -70,11 +83,13 @@ class DSI_ViT(pl.LightningModule):
 		- dropout: float, the dropout value
 		- learning_rate: float, the learning rate of the optimizer
 		- batch_size: int, the batch size
+		- transformer_type: DSITransformer.TRANSFORMER_TYPES, the type of the Transformer model (scheduled sampling, autoregressive, or teacher forcing)
+		- scheduled_sampling_decay: float (optional), the linear decay of the scheduled sampling probability when a scheduled sampling transformed is used (default is 0.05)
 
 		For more details: https://pytorch.org/tutorials/beginner/transformer_tutorial.html
 		'''
 		# Initialize the PyTorch Lightning model (call the parent constructor)
-		super(DSI_ViT, self).__init__()
+		super(DSITransformer, self).__init__()
 		# PyTorch Lightning function to save the model's hyperparameters
 		self.save_hyperparameters({
 			"learning_rate": learning_rate,
@@ -89,19 +104,6 @@ class DSI_ViT(pl.LightningModule):
 		# Store the padding token (11 is used for the document ID padding token)
 		self.doc_id_padding_token = 11
 		# Store the model (Transformer model with the specified hyperparameters)
-		'''
-		self.model = VisionTransformer(
-			image_size=64,
-			patch_size=16,
-			num_layers=layers,
-			num_heads=transformer_heads,
-			hidden_dim=embeddings_size,
-			mlp_dim=embeddings_size,
-			dropout=dropout,
-			attention_dropout=dropout,
-			num_classes=target_tokens
-		)
-		'''
 		self.model = Transformer(
 			# Number of expected features in the encoder/decoder inputs
 			d_model=embeddings_size,
@@ -116,22 +118,29 @@ class DSI_ViT(pl.LightningModule):
 			dropout=dropout
 		)
 		# Embedding layer for the input tokens (i.e. tokens in the vocabulary for both documents and queries)
-		self.get_input_embedding = nn.Embedding(tokens_in_vocabulary, embeddings_size, padding_idx=0)
+		self.get_input_embedding = nn.Embedding(
+			tokens_in_vocabulary, embeddings_size, padding_idx=0)
 		# Embedding layer for the target tokens (output features, i.e. document IDs)
-		self.get_target_embedding = nn.Embedding(target_tokens, embeddings_size, padding_idx=self.doc_id_padding_token)
+		self.get_target_embedding = nn.Embedding(
+			target_tokens, embeddings_size, padding_idx=self.doc_id_padding_token)
 		# Positional encoding layer ("custom" torch.nn.Module, implements the positional encoding module of the traditional Transformer architecture)
 		self.positional_encoder = PositionalEncoding(embeddings_size, dropout)
 		# Output layer of the model (linear layer, outputs the predictions for each target token, hence each digit of the document ID)
 		self.output_layer = nn.Linear(embeddings_size, target_tokens)
 		# Store the loss function (Cross Entropy Loss)
-		self.cross_entropy_loss = nn.CrossEntropyLoss(ignore_index=self.doc_id_padding_token)
+		self.cross_entropy_loss = nn.CrossEntropyLoss(
+			ignore_index=self.doc_id_padding_token)
 		# Use scheduled sampling to avoid exposure bias (with a linear decay of the probability of using the ground truth target)
+		self.transformer_type = transformer_type
+		self.scheduled_sampling_decay = scheduled_sampling_decay
 		self.scheduled_sampling_probability = 1.0
 		# Store the outputs for training and validation steps
 		self.training_losses = []
 		self.validation_losses = []
 		self.training_accuracies = []
 		self.validation_accuracies = []
+		# Store the model type
+		self.model_type = MODEL_TYPES.DSI_TRANSFORMER
 
 	# Pytorch lightning function to compute the forward pass of the model
 	#   For more details: https://pytorch.org/docs/stable/generated/torch.nn.Transformer.html#torch.nn.Transformer.forward
@@ -140,11 +149,14 @@ class DSI_ViT(pl.LightningModule):
 		input_length = input.size(0)
 		target_length = target.size(0)
 		# Create the masks for the input and target sequences
-		input_mask = torch.zeros((input_length, input_length), device=self.device).type(torch.bool)
-		target_mask = nn.Transformer.generate_square_subsequent_mask(target_length, device=self.device, dtype=torch.bool)
+		input_mask = torch.zeros(
+			(input_length, input_length), device=self.device).type(torch.bool)
+		target_mask = nn.Transformer.generate_square_subsequent_mask(
+			target_length, device=self.device, dtype=torch.bool)
 		# Create the padding masks for the input and target sequences
 		input_padding_mask = (input == 0).transpose(0, 1).type(torch.bool)
-		target_padding_mask = (target == self.doc_id_padding_token).transpose(0, 1).type(torch.bool)
+		target_padding_mask = (target == self.doc_id_padding_token).transpose(
+			0, 1).type(torch.bool)
 		# Get the embeddings for the input and target sequences
 		input = self.get_input_embedding(input)
 		target = self.get_target_embedding(target)
@@ -152,7 +164,8 @@ class DSI_ViT(pl.LightningModule):
 		input = self.positional_encoder(input).to(self.device)
 		target = self.positional_encoder(target).to(self.device)
 		# Compute the output of the transformer model
-		output = self.model(input, target, input_mask, target_mask, None, input_padding_mask, target_padding_mask, input_padding_mask)
+		output = self.model(input, target, input_mask, target_mask,
+							None, input_padding_mask, target_padding_mask, input_padding_mask)
 		# Return the final output of the model
 		return self.output_layer(output)
 
@@ -182,10 +195,10 @@ class DSI_ViT(pl.LightningModule):
 			# Check wheter to use teacher forcing for the next token or use the model's own prediction (autoregressive approach)
 			use_teacher_forcing = \
 				using_teacher_forcing and \
-				((self.transformer_type == DSI_ViT.TRANSFORMER_TYPES.SCHEDULED_SAMPLING_TRANSFORMER and
+				((self.transformer_type == DSITransformer.TRANSFORMER_TYPES.SCHEDULED_SAMPLING_TRANSFORMER and
 					random.random() < self.scheduled_sampling_probability) or
 				(self.transformer_type ==
-				DSI_ViT.TRANSFORMER_TYPES.TEACHER_FORCINIG_TRANSFORMER))
+				DSITransformer.TRANSFORMER_TYPES.TEACHER_FORCINIG_TRANSFORMER))
 			# Use scheduled sampling to avoid exposure bias
 			if not force_autoregression and use_teacher_forcing:
 				# Get the ground truth output starting from the input and the actual target sequence (teacher forcing approach)
@@ -262,7 +275,7 @@ class DSI_ViT(pl.LightningModule):
 		epoch_num = self.current_epoch
 		print()
 		# Log the scheduled sampling probability for this epoch
-		if self.transformer_type == DSI_ViT.TRANSFORMER_TYPES.SCHEDULED_SAMPLING_TRANSFORMER:
+		if self.transformer_type == DSITransformer.TRANSFORMER_TYPES.SCHEDULED_SAMPLING_TRANSFORMER:
 			self.log('scheduled_sampling_probability',
 					self.scheduled_sampling_probability)
 			print(f"Scheduled sampling probability for epoch {epoch_num}: ",
@@ -293,7 +306,7 @@ class DSI_ViT(pl.LightningModule):
 		epoch_num = self.current_epoch
 		print()
 		# Log the scheduled sampling probability for this epoch
-		if self.transformer_type == DSI_ViT.TRANSFORMER_TYPES.SCHEDULED_SAMPLING_TRANSFORMER:
+		if self.transformer_type == DSITransformer.TRANSFORMER_TYPES.SCHEDULED_SAMPLING_TRANSFORMER:
 			self.log('scheduled_sampling_probability',
 					self.scheduled_sampling_probability)
 			print(f"Scheduled sampling probability for epoch {epoch_num}: ",

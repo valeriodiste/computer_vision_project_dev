@@ -20,71 +20,6 @@ torch.manual_seed(RANDOM_SEED)
 # Define the number of workers for the dataloaders (set to 0 to use the main process)
 DATALOADERS_NUM_WORKERS = 0
 
-
-def train_siamese(siamese_dataset, siamese_model, max_epochs, batch_size, split_ratio, logger=None, save_path=None):
-
-	# Set the random seed for reproducibility
-	torch.manual_seed(RANDOM_SEED)
-
-	# Split the dataset into training and evaluation sets
-	train_size = int(split_ratio * len(siamese_dataset))
-	validation_size = len(siamese_dataset) - train_size
-	train_dataset, validation_dataset = random_split(
-		siamese_dataset, [train_size, validation_size]
-	)
-
-	# Create the training and validation sets dataloaders
-	train_dataloader = DataLoader(
-		train_dataset, batch_size=batch_size, shuffle=True,
-		num_workers=DATALOADERS_NUM_WORKERS
-	)
-	validation_dataloader = DataLoader(
-		validation_dataset, batch_size=batch_size, shuffle=False,
-		num_workers=DATALOADERS_NUM_WORKERS
-	)
-
-	# Set the model to training mode (if not already)
-	siamese_model.train()
-
-	# Get the model's checkpoint folder and name
-	checkpoint_folder = "/".join(save_path.split("/")[:-1]) + "/"
-	checkpoint_name = save_path.split("/")[-1]
-	print("checkpoint_folder:", checkpoint_folder)
-	print("checkpoint_name:", checkpoint_name)
-
-	# Train the model (using the PyTorch Lightning's Trainer)
-	trainer = pl.Trainer(
-		# Set the maximum number of epochs
-		max_epochs=max_epochs,
-		# Avoids executing a validation sanity check at the beginning of the training (to speed up the training process)
-		#   NOTE: this has no effect on the training, as this check is only used to verify if errors on the validation set
-		#   are present before starting training (rather than during training itself)
-		num_sanity_val_steps=0,
-		# Set the logger if provided
-		logger=logger,
-		# Disable checkpointing (to save disk space, checkpoints are saved after training is completed)
-		enable_checkpointing=False
-	)
-	trainer.fit(siamese_model, train_dataloader, validation_dataloader)
-
-	# Get the wandb run ID
-	wandb_run_id = None
-	if logger is not None:
-		wandb_run_id = logger.experiment.id
-		# Finish the current run
-		logger.experiment.finish(quiet=True)
-
-	# Save model checkpoints
-	trainer.save_checkpoint(save_path)
-
-	# Return datasets
-	return {
-		"train": train_dataset,
-		"validation": validation_dataset,
-		"run_id": wandb_run_id
-	}
-
-
 def train_transformer(transformer_indexing_dataset, transformer_retrieval_dataset, transformer_model: pl.LightningModule, max_epochs_list: list[int, int], batch_size, indexing_split_ratios: tuple[float, float], retrieval_split_ratios: tuple[float, float, float], logger: WandbLogger, save_path: str, train_retrieval: bool = True):
 	'''
 	Train the transformer model for the indexing and retrieval tasks.
@@ -122,12 +57,9 @@ def train_transformer(transformer_indexing_dataset, transformer_retrieval_datase
 	)
 
 	# Split the retrieval dataset into training and evaluation sets for the retrieval task
-	retrieval_train_size = \
-		int(retrieval_split_ratios[0] * len(transformer_retrieval_dataset))
-	retrieval_validation_size = \
-		int(retrieval_split_ratios[1] * len(transformer_retrieval_dataset))
-	retrieval_test_size = len(transformer_retrieval_dataset) - \
-		retrieval_train_size - retrieval_validation_size
+	retrieval_train_size = int(retrieval_split_ratios[0] * len(transformer_retrieval_dataset))
+	retrieval_validation_size = int(retrieval_split_ratios[1] * len(transformer_retrieval_dataset))
+	retrieval_test_size = len(transformer_retrieval_dataset) - retrieval_train_size - retrieval_validation_size
 	retrieval_train_dataset, retrieval_validation_dataset, retrieval_test_dataset = random_split(
 		transformer_retrieval_dataset, [
 			retrieval_train_size,

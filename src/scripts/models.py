@@ -1,11 +1,17 @@
+'''
+NOTE: Code below (apart from library imports) comes from the tutorial at:
+> https://lightning.ai/docs/pytorch/stable/notebooks/course_UvA-DL/11-vision-transformer.html
+'''
+
+
+# NOTE: import libraries added by me  ==========================================================================================================
 
 # Import PyTorch and its modules
 import torch
 import torch.nn as nn
-from torch.nn import Transformer
+import torch.optim as optim
+# from torch.nn import Transformer
 from torch.nn import functional
-# Import the torch vision transformer model
-from torchvision.models import VisionTransformer
 # Import PyTorch Lightning
 import pytorch_lightning as pl
 # Import other modules
@@ -17,390 +23,280 @@ try:
 	from src.scripts import datasets
 	from src.scripts.utils import RANDOM_SEED
 except ModuleNotFoundError:
-	from computer_vision_project_dev.src.scripts import datasets
-	from computer_vision_project_dev.src.scripts.utils import RANDOM_SEED
+	from computer_vision_project.src.scripts import datasets
+	from computer_vision_project.src.scripts.utils import RANDOM_SEED
 
 # Seed random number generators for reproducibility
 np.random.seed(RANDOM_SEED)
 torch.manual_seed(RANDOM_SEED)
 random.seed(RANDOM_SEED)
 
-class PositionalEncoding(nn.Module):
+# LighningModule Code from the tutorial ==========================================================================================================
 
-	def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
-		'''
-		Constructor of the PositionalEncoding class (custom torch.nn.Module).
+class DSI_VisionTransformer(pl.LightningModule):
 
-		This module implements the positional encoding module of the traditional Transformer architecture.
+	def __init__(self, model_kwargs, lr):
+		super().__init__()
+		self.save_hyperparameters()
+		self.model = DSI_ViT(**model_kwargs)
+		# self.example_input_array = next(iter(train_loader))[0]
 
-		For more details: https://pytorch.org/tutorials/beginner/transformer_tutorial.html
-		'''
-		super(PositionalEncoding, self).__init__()
-		self.dropout = nn.Dropout(p=dropout)
+	def forward(self, imgs, ids):
+		# Expects as input a tensor of shape [B, C, H, W] where:
+		# - B = batch size (number of images in the batch)
+		# - C = number of channels (e.g. 3 channels for RGB)
+		# - H = height of the image
+		# - W = width of the image
+		return self.model(imgs, ids)
 
-		position = torch.arange(max_len).unsqueeze(1)
-		div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-		pe = torch.zeros(max_len, 1, d_model)
-		pe[:, 0, 0::2] = torch.sin(position * div_term)
-		pe[:, 0, 1::2] = torch.cos(position * div_term)
-		self.register_buffer('pe', pe)
+	def configure_optimizers(self):
+		optimizer = optim.AdamW(self.parameters(), lr=self.hparams.lr)
+		lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
+		return [optimizer], [lr_scheduler]
 
-	def forward(self, x):
-		x = x + self.pe[:x.size(0)]
-		return self.dropout(x)
+	def _calculate_loss(self, batch, mode="train"):
+		imgs, labels = batch
+		preds = self.model(imgs)
+		loss = functional.cross_entropy(preds, labels)
+		acc = (preds.argmax(dim=-1) == labels).float().mean()
 
-class DSI_ViT(pl.LightningModule):
-
-	# Enum class for the Transformer model types
-	class TRANSFORMER_TYPES:
-		''' Enum class for the Transformer model types '''
-		SCHEDULED_SAMPLING_TRANSFORMER = "Scheduled Sampling Transformer"
-		''' The Transformer model with scheduled sampling to reduce exposure bias (use the "scheduled_sampling_decay" parameter to control the linear decay of the probability of using the ground truth target's token) '''
-		AUTOREGRESSIVE_TRANSFORMER = "Autoregressive Transformer"
-		''' The Transformer model with an autoregressive approach (i.e. generate the sequence token by token using the model's own predictions) '''
-		TEACHER_FORCINIG_TRANSFORMER = "Teacher Forcing Transformer"
-		''' The Transformer model with teacher forcing (i.e. use the ground truth target's token for each prediction) '''
-
-	def __init__(
-			self, tokens_in_vocabulary: int,
-			embeddings_size: int, target_tokens: int,
-			transformer_heads: int, layers: int,
-			dropout: float, learning_rate: float,
-			batch_size: int,
-	):
-		'''
-		Constructor of the DSITransformer class.
-
-		Args:
-		- tokens_in_vocabulary: int, the number of tokens in the vocabulary
-		- embeddings_size: int, the size of the embeddings
-		- target_tokens: int, the number of possible target tokens for the output
-		- transformer_heads: int, the number of multi-head attention heads
-		- layers: int, the number of encoder and decoder layers
-		- dropout: float, the dropout value
-		- learning_rate: float, the learning rate of the optimizer
-		- batch_size: int, the batch size
-
-		For more details: https://pytorch.org/tutorials/beginner/transformer_tutorial.html
-		'''
-		# Initialize the PyTorch Lightning model (call the parent constructor)
-		super(DSI_ViT, self).__init__()
-		# PyTorch Lightning function to save the model's hyperparameters
-		self.save_hyperparameters({
-			"learning_rate": learning_rate,
-			"batch_size": batch_size,
-			"embedding_size": embeddings_size,
-			"number_of_layers": layers,
-			"dropout": dropout
-		})
-		# Store the input and output sizes
-		self.input_size = embeddings_size
-		self.target_tokens = target_tokens
-		# Store the padding token (11 is used for the document ID padding token)
-		self.doc_id_padding_token = 11
-		# Store the model (Transformer model with the specified hyperparameters)
-		self.model = VisionTransformer(
-			image_size=64,
-			patch_size=16,
-			num_layers=layers,
-			num_heads=transformer_heads,
-			hidden_dim=embeddings_size,
-			mlp_dim=embeddings_size,
-			dropout=dropout,
-			attention_dropout=dropout,
-			num_classes=target_tokens
-		)
-		# Embedding layer for the input tokens (i.e. tokens in the vocabulary for both documents and queries)
-		self.get_input_embedding = nn.Embedding(tokens_in_vocabulary, embeddings_size, padding_idx=0)
-		# Embedding layer for the target tokens (output features, i.e. document IDs)
-		self.get_target_embedding = nn.Embedding(target_tokens, embeddings_size, padding_idx=self.doc_id_padding_token)
-		# Positional encoding layer ("custom" torch.nn.Module, implements the positional encoding module of the traditional Transformer architecture)
-		self.positional_encoder = PositionalEncoding(embeddings_size, dropout)
-		# Output layer of the model (linear layer, outputs the predictions for each target token, hence each digit of the document ID)
-		self.output_layer = nn.Linear(embeddings_size, target_tokens)
-		# Store the loss function (Cross Entropy Loss)
-		self.cross_entropy_loss = nn.CrossEntropyLoss(ignore_index=self.doc_id_padding_token)
-		# Use scheduled sampling to avoid exposure bias (with a linear decay of the probability of using the ground truth target)
-		self.scheduled_sampling_probability = 1.0
-		# Store the outputs for training and validation steps
-		self.training_losses = []
-		self.validation_losses = []
-		self.training_accuracies = []
-		self.validation_accuracies = []
-
-	# Pytorch lightning function to compute the forward pass of the model
-	#   For more details: https://pytorch.org/docs/stable/generated/torch.nn.Transformer.html#torch.nn.Transformer.forward
-	def forward(self, input, target):
-		# Get the length of the input and target sequences
-		input_length = input.size(0)
-		target_length = target.size(0)
-		# Create the masks for the input and target sequences
-		input_mask = torch.zeros((input_length, input_length), device=self.device).type(torch.bool)
-		target_mask = nn.Transformer.generate_square_subsequent_mask(target_length, device=self.device, dtype=torch.bool)
-		# Create the padding masks for the input and target sequences
-		input_padding_mask = (input == 0).transpose(0, 1).type(torch.bool)
-		target_padding_mask = (target == self.doc_id_padding_token).transpose(0, 1).type(torch.bool)
-		# Get the embeddings for the input and target sequences
-		input = self.get_input_embedding(input)
-		target = self.get_target_embedding(target)
-		# Apply the positional encoding to the input and target sequences
-		input = self.positional_encoder(input).to(self.device)
-		target = self.positional_encoder(target).to(self.device)
-		# Compute the output of the transformer model
-		output = self.model(input, target, input_mask, target_mask, None, input_padding_mask, target_padding_mask, input_padding_mask)
-		# Return the final output of the model
-		return self.output_layer(output)
-
-	# Auxiliary function for both the training and valdiation steps (to compute the loss and accuracy)
-	def _step(self, batch, force_autoregression=False):
-		'''
-		Generate the output document ID using an autoregressive approach (i.e. generate the sequence token by token using the model's own predictions)
-
-		Returns the loss and accuracy of the model for the given batch
-		'''
-		# Get the input and target sequences from the batch
-		input, target = batch
-		# Transpose the input and target sequences to match the Transformer's expected input format
-		input = input.transpose(0, 1)
-		target = target.transpose(0, 1)
-		# Initialize the output tensor
-		output = torch.zeros(target.size(0) - 1, input.size(1),
-							self.target_tokens, device=input.device)
-		# Start with the first token (start token)
-		target_in = target[:1, :]
-		# Flag indicating if the model should use teacher forcing for all of the next tokens
-		using_teacher_forcing = True
-		# Iterate over the target sequence to generate the output sequence
-		for i in range(1, target.size(0)):
-			# Store the next token
-			next_token = None
-			# Check wheter to use teacher forcing for the next token or use the model's own prediction (autoregressive approach)
-			use_teacher_forcing = \
-				using_teacher_forcing and \
-				((self.transformer_type == DSI_ViT.TRANSFORMER_TYPES.SCHEDULED_SAMPLING_TRANSFORMER and
-					random.random() < self.scheduled_sampling_probability) or
-				(self.transformer_type ==
-				DSI_ViT.TRANSFORMER_TYPES.TEACHER_FORCINIG_TRANSFORMER))
-			# Use scheduled sampling to avoid exposure bias
-			if not force_autoregression and use_teacher_forcing:
-				# Get the ground truth output starting from the input and the actual target sequence (teacher forcing approach)
-				ground_truth_output = self(input, target[:i, :])
-				# Get the ground truth token for the current position "i" in the target sequence
-				ground_truth_token = ground_truth_output[i-1:i, :, :]
-				# Append the ground truth token to the output tensor
-				output[i - 1] = ground_truth_token.squeeze(0)
-				# Use the ground truth token as the next token
-				next_token = torch.argmax(ground_truth_token, dim=-1)
-			else:
-				# Generate the output using the input and the target sequences (autoregressive approach)
-				output_till_now = self(input, target_in)
-				# Get the prediction for the last token
-				last_token_output = output_till_now[-1, :, :].unsqueeze(0)
-				# Append the last token prediction to the output tensor
-				output[i - 1] = last_token_output.squeeze(0)
-				# Use the last generated best token as the next token of the target_in sequence
-				next_token = torch.argmax(last_token_output, dim=-1)
-				# Set the flag to stop using teacher forcing for all the next tokens
-				using_teacher_forcing = False
-			# Append the next token to the target_in sequence
-			target_in = torch.cat((target_in, next_token), dim=0)
-		# Get the target output (excluding the first token, i.e. the start token)
-		target_out = target[1:, :]
-		# Ensure the target_out tensor is contiguous in memory (to efficiently compute the loss)
-		target_out = target_out.contiguous()
-		# Compute the loss
-		reshaped_output = output.reshape(-1, self.target_tokens)
-		reshaped_target_out = target_out.reshape(-1)
-		loss = self.cross_entropy_loss(reshaped_output, reshaped_target_out)
-		# Get the best token prediction (to compute the accuracy)
-		predictions = torch.argmax(output, dim=-1)
-		# Compute accuracy with masking for padding
-		non_padding_mask = (target_out != self.doc_id_padding_token)
-		num_correct = ((predictions == target_out) &
-					non_padding_mask).sum().item()
-		num_total = non_padding_mask.sum().item()
-		accuracy_value = num_correct / num_total if num_total > 0 else 0.0
-		accuracy = torch.tensor(accuracy_value)
-		# Return loss and accuracy (tensors)
-		return loss, accuracy
+		self.log("%s_loss" % mode, loss)
+		self.log("%s_acc" % mode, acc)
+		
+		return loss
 
 	def training_step(self, batch, batch_idx):
-		# Training step for the model (compute the loss and accuracy)
-		loss, accuracy = self._step(batch)
-		# Append the loss to the training losses list (for logging)
-		self.training_accuracies.append(accuracy)
-		# Append the accuracy to the training accuracies list (for logging)
-		self.training_losses.append(loss)
-		# Return the loss
+		loss = self._calculate_loss(batch, mode="train")
 		return loss
 
 	def validation_step(self, batch, batch_idx):
-		# Validation step for the model (compute the loss and accuracy)
-		loss, accuracy = self._step(batch, True)
-		# Append the loss to the validation losses list (for logging)
-		self.validation_losses.append(loss)
-		# Append the accuracy to the validation accuracies list (for logging)
-		self.validation_accuracies.append(accuracy)
-		# Return the loss
-		return loss
+		self._calculate_loss(batch, mode="val")
 
-	# Pytorch lightning function to configure the optimizers of the model
-	def configure_optimizers(self):
-		# Define and return optimizer. Example: Adam
-		return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
+	def test_step(self, batch, batch_idx):
+		self._calculate_loss(batch, mode="test")
 
-	# PyTorch Lightning function (optional) called at the very end of each training epoch
-	def on_train_epoch_end(self):
-		# If the validation losses list is NOT empty, return (to avoid logging the training losses twice)
-		if len(self.validation_losses) > 0:
-			return
-		epoch_num = self.current_epoch
-		print()
-		# Log the scheduled sampling probability for this epoch
-		if self.transformer_type == DSI_ViT.TRANSFORMER_TYPES.SCHEDULED_SAMPLING_TRANSFORMER:
-			self.log('scheduled_sampling_probability',
-					self.scheduled_sampling_probability)
-			print(f"Scheduled sampling probability for epoch {epoch_num}: ",
-				self.scheduled_sampling_probability)
-			# Decrease the scheduled sampling probability
-			self.scheduled_sampling_probability -= self.scheduled_sampling_decay
-			if self.scheduled_sampling_probability < 0.0:
-				self.scheduled_sampling_probability = 0.0
-		# Log the average training loss for this epoch
-		if not len(self.training_losses) == 0:
-			avg_epoch_training_loss = torch.stack(self.training_losses).mean()
-			self.log("avg_epoch_training_loss", avg_epoch_training_loss)
-			print(f"Average training loss for epoch {epoch_num}: ",
-				avg_epoch_training_loss.item())
-			self.training_losses.clear()
-		# Log the average training accuracy for this epoch
-		if not len(self.training_accuracies) == 0:
-			avg_epoch_training_accuracy = torch.stack(
-				self.training_accuracies).mean()
-			self.log("avg_epoch_training_accuracy",
-					avg_epoch_training_accuracy)
-			print(f"Average training accuracy for epoch {epoch_num}: ",
-				avg_epoch_training_accuracy.item())
-			self.training_accuracies.clear()
+# nn.Module Code from the tutorial ==========================================================================================================
 
-	# Pytorch lightning function (optional) called at the very end of each validation epoch
-	def on_validation_epoch_end(self):
-		epoch_num = self.current_epoch
-		print()
-		# Log the scheduled sampling probability for this epoch
-		if self.transformer_type == DSI_ViT.TRANSFORMER_TYPES.SCHEDULED_SAMPLING_TRANSFORMER:
-			self.log('scheduled_sampling_probability',
-					self.scheduled_sampling_probability)
-			print(f"Scheduled sampling probability for epoch {epoch_num}: ",
-				self.scheduled_sampling_probability)
-			# Decrease the scheduled sampling probability
-			self.scheduled_sampling_probability -= self.scheduled_sampling_decay
-			if self.scheduled_sampling_probability < 0.0:
-				self.scheduled_sampling_probability = 0.0
-		# Log the average training loss for this epoch
-		if not len(self.training_losses) == 0:
-			avg_epoch_training_loss = torch.stack(self.training_losses).mean()
-			self.log("avg_epoch_training_loss", avg_epoch_training_loss)
-			print(f"Average training loss for epoch {epoch_num}: ",
-				avg_epoch_training_loss.item())
-			self.training_losses.clear()
-		# Log the average validation loss for this epoch
-		if not len(self.validation_losses) == 0:
-			avg_epic_validation_loss = torch.stack(
-				self.validation_losses).mean()
-			self.log("avg_epoch_val_loss", avg_epic_validation_loss)
-			print(f"Average validation loss for epoch {epoch_num}: ",
-				avg_epic_validation_loss.item())
-			self.validation_losses.clear()
-		# Log the average training accuracy for this epoch
-		if not len(self.training_accuracies) == 0:
-			avg_epoch_training_accuracy = torch.stack(
-				self.training_accuracies).mean()
-			self.log("avg_epoch_training_accuracy",
-					avg_epoch_training_accuracy)
-			print(f"Average training accuracy for epoch {epoch_num}: ",
-				avg_epoch_training_accuracy.item())
-			self.training_accuracies.clear()
-		# Log the average validation accuracy for this epoch
-		if not len(self.validation_accuracies) == 0:
-			avg_epoch_validation_accuracy = torch.stack(
-				self.validation_accuracies).mean()
-			self.log("avg_epoch_val_accuracy", avg_epoch_validation_accuracy)
-			print(f"Average validation accuracy for epoch {epoch_num}: ",
-				avg_epoch_validation_accuracy.item())
-			self.validation_accuracies.clear()
+class DSI_ViT(nn.Module):
 
-	def reset_scheduled_sampling_probability(self):
-		''' Reset the scheduled sampling probability to 1.0 '''
-		self.scheduled_sampling_probability = 1.0
+	def __init__(
+		# Main parameters
+		self,
+		embed_dim,
+		hidden_dim,
+		num_channels,
+		num_heads,
+		num_layers,
+		num_classes,
+		patch_size,
+		num_patches,
+		# Other parameters
+		img_id_max_length,
+		img_id_start_token,
+		img_id_end_token,
+		img_id_padding_token,
+		# Training parameters
+		dropout=0.0,
+	):
+		"""Vision Transformer.
 
-	def generate_top_k_doc_ids(self, encoded_query: torch.Tensor, k: int, retrieval_dataset: datasets.TransformerRetrievalDataset):
-		''' Generate the top K document IDs for the given encoded query '''
-		# Initialize random seed for reproducibility
-		torch.manual_seed(RANDOM_SEED)
-		# Special tokens of the document IDs encoding
-		doc_id_start_token = retrieval_dataset.doc_id_start_token
-		doc_id_end_token = retrieval_dataset.doc_id_end_token
-		doc_id_padding_token = retrieval_dataset.doc_id_padding_token
-		doc_id_skip_token = -1
-		# Max length of the document IDs
-		doc_id_max_length = retrieval_dataset.doc_id_max_length
-		# Initialize target sequence (document ID) as a tensor containing only the start token
-		target_sequences = torch.tensor([[doc_id_start_token]],
-										dtype=torch.long, device=encoded_query.device)
-		# Iterate over the maximum length of the sequences (i.e. the number of tokens to generate for each document IDs)
-		for i in range(doc_id_max_length):
-			# Source sequence (query encoding) for the transformer model
-			source_sequence = encoded_query.unsqueeze(
-				1).t().repeat(target_sequences.size(0), 1).t()
-			# Get the next tokens logits (no softmax used for the model's output) from the transformer model (list of N floats, with N being the number of possible target tokens, hence the 10 possible digits of document IDs)
-			outputs = self(source_sequence, target_sequences.t())
-			# Get the next token to append to each sequence (i.e. the token with the highest probability for each of the k sequences)
-			sorted_logits, sorted_indices = torch.sort(
-				outputs[-1], descending=True, dim=-1)
-			# Transform the logits into probabilities using the softmax function
-			probabilities = functional.softmax(sorted_logits, dim=-1)
-			# Replace tokens with a probability lower than a threshold with a special token (doc_id_skip_token), and keep only the top n tokens
-			max_tokens_to_keep = max(1, (4 - i*2) + int(math.log10(k)))
-			probability_threshold = 1.0 / self.target_tokens
-			# Check if all the tokens have a probability lower than the threshold
-			if torch.all(probabilities < probability_threshold):
-				# If all the filtered indices are the doc_id_skip_token, keep only the top n tokens
-				filtered_indices = sorted_indices[:, 0: max_tokens_to_keep]
-			else:
-				# Filter out the tokens with a probability lower than the threshold and keep only the top n tokens
-				filtered_indices = sorted_indices.masked_fill(
-					probabilities < probability_threshold, doc_id_skip_token)[:, 0: max_tokens_to_keep]
-			# Repeat the target sequences to match the number of sequences in the sorted indices tensor
-			target_sequences = target_sequences.repeat(
-				1, filtered_indices.size(1)).view(-1, target_sequences.size(1))
-			# Reshape the sorted indices tensor to match the shape of the target sequences tensor
-			filtered_indices = filtered_indices.flatten().unsqueeze(0).t()
-			# Concatenate the target sequences with the sorted indices to create the new target sequences
-			target_sequences = torch.cat(
-				(target_sequences, filtered_indices), dim=1)
-			# Remove all sequences that have the doc_id_skip_token as the last token
-			target_sequences = target_sequences[target_sequences[:, -1]
-												!= doc_id_skip_token]
-		top_k_doc_ids_tokens = target_sequences.tolist()[0: k]
-		# raise ValueError("Stop here for debugging purposes...")
-		# Convert the top k sequences of document IDs' tokens to a list of k document IDs
-		top_k_doc_ids = []
-		for i in range(min(k, len(top_k_doc_ids_tokens))):
-			# doc_id_tokens = top_k_doc_ids_tokens[:, i].tolist()
-			doc_id_tokens = top_k_doc_ids_tokens[i]
-			doc_id = retrieval_dataset.decode_doc_id(doc_id_tokens)
-			top_k_doc_ids.append(doc_id)
-		# Remove duplicate document IDs
-		top_k_doc_ids = list(set(top_k_doc_ids))
-		# Refill the list to have k document IDs
-		use_debug_form_for_refilled_doc_ids = False
-		doc_ids_to_add = retrieval_dataset.get_similar_doc_ids(
-			k - len(top_k_doc_ids), target_doc_ids=top_k_doc_ids)
-		if use_debug_form_for_refilled_doc_ids:
-			top_k_doc_ids = top_k_doc_ids + \
-				["R=" + doc_id for doc_id in doc_ids_to_add]
-		else:
-			top_k_doc_ids = top_k_doc_ids + doc_ids_to_add
-		# Return the top k document IDs
-		return top_k_doc_ids
+		Args:
+			embed_dim: Dimensionality of the input feature vectors to the Transformer (i.e. the size of the embeddings)
+			hidden_dim: Dimensionality of the hidden layer in the feed-forward networks within the Transformer 
+			num_channels: Number of channels of the input (e.g. 3 for RGB, 1 for grayscale, ecc...)
+			num_heads: Number of heads to use in the Multi-Head Attention block
+			num_layers: Number of layers to use in the Transformer
+			num_classes: Number of classes to predict 
+				(in my case, since I give an image with, concatenated, the N digits of the image ID, the num_classes is the number of possible digits of the image IDs, hence 10+3, including the special tokens)
+			patch_size: Number of pixels that the patches have per dimension
+			num_patches: Maximum number of patches an image can have
+			dropout: Amount of dropout to apply in the feed-forward network and on the input encoding
+		"""
+		super().__init__()
+
+		self.patch_size = patch_size
+
+		self.embed_dim = embed_dim
+
+		self.img_id_max_length = img_id_max_length
+		self.img_id_start_token = img_id_start_token
+		self.img_id_end_token = img_id_end_token
+		self.img_id_padding_token = img_id_padding_token
+
+		# Layers/Networks
+		self.input_layer = nn.Linear(num_channels * (patch_size**2), embed_dim)	# Convert the input image's patches into embeddings, i.e. vectors (one for each patch) of size "embed_dim"
+		self.id_embedding = nn.Embedding(	# Embedding layer for the image ID digits (the 10 digits [0-9] plus the 3 special tokens, i.e. end of sequence, padding, start of sequence)
+			num_classes, 	# 10+3 possible digits (10 digits + 3 special tokens)
+			embed_dim,
+			padding_idx=img_id_padding_token	# The padding index is the index of the digit that represents the padding (i.e. the digit that is used to pad the image ID to the maximum length)
+		)
+		self.transformer = nn.Sequential(
+			# Add the specified number of Attention Blocks to the Transformer ("num_layers" times)
+			*(AttentionBlock(embed_dim, hidden_dim, num_heads, dropout=dropout) for _ in range(num_layers))
+		)
+		self.mlp_head = nn.Sequential(
+			nn.LayerNorm(embed_dim), 
+			nn.Linear(embed_dim, num_classes)
+		)
+		self.dropout = nn.Dropout(dropout)
+
+		# Parameters/Embeddings
+		# self.cls_token = nn.Parameter(torch.randn(1, 1, embed_dim))
+		self.pos_embedding = nn.Parameter(torch.randn(1, 1 + num_patches, embed_dim))
+
+	def img_to_patch(x, patch_size, flatten_channels=True):
+		"""
+		Args:
+			x: Tensor representing the image of shape [B, C, H, W]
+			patch_size: Number of pixels per dimension of the patches (integer)
+			flatten_channels: If True, the patches will be returned in a flattened format as a feature vector instead of a image grid.
+
+		Returns:
+			x: The input image tensor reshaped into a tensor (list) of P patches, where each patch is a vector of size C*patch_size*patch_size
+
+		"""
+		B, C, H, W = x.shape	# B is the batch size (number of images in the batch), C is the number of channels (e.g. 3 channels for RGB), H is the height of the image, and W is the width of the image
+		P = patch_size 			# Width and height of the patches
+		H_P = H // P			# Number of patches vertically
+		W_P = W // P			# Number of patches horizontally
+		x = x.reshape(B, C, H_P, P, W_P, P) # [B, C, H, W] -> [B, C, H_P, P, W_P, P]	-> Reshape the image into patches
+		x = x.permute(0, 2, 4, 1, 3, 5)		# [B, H_P, W_P, C, P, P]	-> Rearrange the patches so that they are in the correct order
+		x = x.flatten(1, 2)  				# [B, H_P*W_P, C, P, P]		-> Flatten each patch into a vector
+		if flatten_channels:
+			x = x.flatten(2, 4)  			# [B, H_P*W_P, C*P*P]		-> Flatten all the patches into a single vector
+		return x
+	
+	def forward(self, imgs, ids):
+		'''
+			Expects as input a tensor of images and a tensor of image IDs.
+
+			The image tensor has a shape [B, C, H, W] where:
+			- B = batch size (number of images in the batch)
+			- C = number of channels (e.g. 3 channels for RGB)
+			- H = height of the image
+			- W = width of the image
+
+			The image ID tensor is a tensor of integer digits (or special tokens) with shape [B, N] where:
+			- B = batch size (number of images in the batch)
+			- M = number of digits in the image ID until now (starts with the start token, might not end with the end token, and might have padding tokens after the end token)
+		'''
+		
+		# Preprocess input
+		imgs = self.img_to_patch(imgs, self.patch_size)
+		B, T, V = x.shape	# B is the batch size (number of images in the batch), T is the total number of patches of the image, and V is the size of the patches' vectors (flattened into value of each color channel, per width, per height)
+		imgs = self.input_layer(imgs) # Convert the input images' patches into embeddings, i.e. vectors (one for each patch) of size "embed_dim"
+
+		# Convert the image IDs into embeddings
+		M = ids.shape[1]				# The number of digits in the image ID
+		N = self.img_id_max_length		# The maximum number of digits in the image ID
+		ids = self.id_embedding(ids)	# Convert the image ID digits into embeddings, i.e. vectors (one for each digit) of size "embed_dim"
+
+		# Concatenate the image embeddings with the image ID embeddings
+		# - imgs size: [B, T, embed_dim]
+		# - ids size: [B, M, embed_dim]
+		x = torch.cat([imgs, ids], dim=1)
+
+		# Add CLS token (classification token) and positional encoding (to the end of the sequence)
+		# cls_token = self.cls_token.repeat(B, 1, 1)
+		# # x = torch.cat([cls_token, x], dim=1)
+		# x = torch.cat([x, cls_token], dim=1)
+
+		# Complete the image ID embeddings with masking tokens
+		# - If the image ID has less than the maximum number of digits, mask the remaining digits
+		# - If the image ID has more digits than the maximum number of digits, truncate it
+		mask_token = -1
+		masking_sequence = []
+		if M < N:
+			masking_sequence = torch.full((B, N - M, self.embed_dim), mask_token, dtype=torch.long, device=self.device)
+			x = torch.cat([x, masking_sequence], dim=1)
+		if M > N:
+			x = x[:, : N]
+
+		# Get a mask for the image ID embeddings
+		# - The mask is True for the padding tokens and False for the other tokens
+		# - The mask is used to avoid the Transformer to consider the padding tokens in the computation
+		padding_mask = (ids == self.img_id_padding_token)
+
+		# Get a mask for the attention mechanism (i.e. mask the future tokens) from the masking sequence
+		# - The mask is True for the future tokens and False for the other tokens
+		# - The mask is used to avoid the Transformer to consider the future tokens in the computation
+		attention_mask = nn.Transformer.generate_square_subsequent_mask(N, device=self.device, dtype=torch.bool)
+
+		# Add positional encoding
+		x = x + self.pos_embedding[:, : T + 1]	# Add positional encoding at the end of the sequence
+
+		# Apply Transforrmer
+		x = self.dropout(x)
+		x = x.transpose(0, 1)
+		x = self.transformer(x, padding_mask=padding_mask, attention_mask=attention_mask)
+
+		# Perform classification prediction
+		cls = x[-1]		# The last element of the output is the CLS token, i.e. in this case the last token of the image ID (the predicted token digit given an image and the start digits of the token ID)
+		out = self.mlp_head(cls) # The output is the result of the final MLP head (i.e. the classification layer), hence is a tensor of shape [B, num_classes]
+		return out
+	
+
+	# Pytorch lightning function to compute the forward pass of the model
+	#   For more details: https://pytorch.org/docs/stable/generated/torch.nn.Transformer.html#torch.nn.Transformer.forward
+	def delete_forward_old(self, input, target):
+
+		# Get the length of the input and target sequences
+		input_length = input.size(0)
+		target_length = target.size(0)
+
+		# Create the masks for the input and target sequences
+		input_mask = torch.zeros((input_length, input_length), device=self.device).type(torch.bool)
+		target_mask = nn.Transformer.generate_square_subsequent_mask(target_length, device=self.device, dtype=torch.bool)
+
+		# Create the padding masks for the input and target sequences
+		input_padding_mask = (input == 0).transpose(0, 1).type(torch.bool)
+		target_padding_mask = (target == self.doc_id_padding_token).transpose(0, 1).type(torch.bool)
+
+		# Get the embeddings for the input and target sequences
+		input = self.get_input_embedding(input)
+		target = self.get_target_embedding(target)
+
+		# Apply the positional encoding to the input and target sequences
+		input = self.positional_encoder(input).to(self.device)
+		target = self.positional_encoder(target).to(self.device)
+
+		# Compute the output of the transformer model
+		output = self.model(input, target, input_mask, target_mask, None, input_padding_mask, target_padding_mask, input_padding_mask)
+
+		# Return the final output of the model 
+		return self.output_layer(output)
+
+
+class AttentionBlock(nn.Module):
+
+	def __init__(self, embed_dim, hidden_dim, num_heads, dropout=0.0):
+		"""Attention Block.
+
+		Args:
+			embed_dim: Dimensionality of input and attention feature vectors
+			hidden_dim: Dimensionality of hidden layer in feed-forward network (usually 2-4x larger than embed_dim)
+			num_heads: Number of heads to use in the Multi-Head Attention block
+			dropout: Amount of dropout to apply in the feed-forward network
+		"""
+		super().__init__()
+
+		self.layer_norm_1 = nn.LayerNorm(embed_dim)
+		self.attn = nn.MultiheadAttention(embed_dim, num_heads)
+		self.layer_norm_2 = nn.LayerNorm(embed_dim)
+		self.linear = nn.Sequential(
+			nn.Linear(embed_dim, hidden_dim),
+			nn.GELU(),
+			nn.Dropout(dropout),
+			nn.Linear(hidden_dim, embed_dim),
+			nn.Dropout(dropout),
+		)
+
+	def forward(self, x, padding_mask=None, attention_mask=None):
+		# inp_x = self.layer_norm_1(x)
+		# x = x + self.attn(inp_x, inp_x, inp_x)[0]
+		# x = x + self.linear(self.layer_norm_2(x))
+		inp_x = self.layer_norm_1(x)
+		x = x + self.attn(inp_x, inp_x, inp_x, key_padding_mask=padding_mask, attn_mask=attention_mask)[0]
+		x = x + self.linear(self.layer_norm_2(x))
+
+		return x

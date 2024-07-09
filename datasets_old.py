@@ -22,18 +22,18 @@ torch.manual_seed(RANDOM_SEED)
 random.seed(RANDOM_SEED)
 
 # Constants for the special document IDs tokens of the Transformer models
-IMG_ID_START_TOKEN = 10
-IMG_ID_PADDING_TOKEN = 11
-IMG_ID_END_TOKEN = 12
+DOC_ID_START_TOKEN = 12
+DOC_ID_END_TOKEN = 10
+DOC_ID_PADDING_TOKEN = 11
 
 class TransformerIndexingDataset(Dataset):
 
 	# Initialize the dataset of tuples (encoded_doc, encoded_doc_id) for the indexing phase (Transformer models learns to map documents to queries)
 	def __init__(
 		self,
-		images: list,
-		img_id_max_length: int = -1,
-		img_size: int = 64,
+		documents: dict,
+		doc_id_max_length: int = -1,
+		doc_max_length: int = 64,
 		dataset_file_path: str = None,
 		force_dataset_rebuild: bool = False
 	):
@@ -41,16 +41,16 @@ class TransformerIndexingDataset(Dataset):
 		Constructor of the TransformerIndexingDataset class.
 
 		Args:
-		- images: list, a list containing the images data
-		- img_id_max_length: int, the maximum length of the image IDs sequence
-		- img_size: int, the width (and thus also the height) of the images, in pixels (we use square images)
+		- documents: dict, a dictionary containing the documents data
+		- doc_id_max_length: int, the maximum length of the doc IDs sequence
+		- doc_max_length: int, the maximum length of the input sequence
 		- dataset_file_path: str, the path of the JSON file in which the <document, doc_id> pairs data will be saved or from which it will be loaded
 		- force_dataset_rebuild: bool, a flag to force the rebuilding of the dataset (if false, a dataset file path is provided, and the file exists, the dataset will be loaded from the file)
 		'''
-		# Store the images dictionary
-		self.images = images
-		# Store the maximum image size
-		self.img_size = img_size
+		# Store the documents dictionary
+		self.documents = documents
+		# Store the maximum document length
+		self.doc_max_length = doc_max_length
 		# Store the dataset file path
 		self.save_dataset_file_path = dataset_file_path
 		# We use a bert tokenizer to encode the documents
@@ -60,26 +60,30 @@ class TransformerIndexingDataset(Dataset):
 			use_fast=True
 		)
 		# Define the doc IDs special tokens
-		self.doc_id_start_token = IMG_ID_START_TOKEN
-		self.doc_id_end_token = IMG_ID_END_TOKEN
-		self.doc_id_padding_token = IMG_ID_PADDING_TOKEN
+		self.doc_id_start_token = DOC_ID_START_TOKEN
+		self.doc_id_end_token = DOC_ID_END_TOKEN
+		self.doc_id_padding_token = DOC_ID_PADDING_TOKEN
 		# Set the maximum doc ID length
-		if img_id_max_length < 0:
+		if doc_id_max_length < 0:
 			# Compute the maximum doc ID length (and add 1 for the start token and 1 for the end token)
-			self.doc_id_max_len = max(len(str(doc_id)) for doc_id in documents.keys()) + 2
+			self.doc_id_max_len = max(len(str(doc_id))
+									for doc_id in documents.keys()) + 2
 		else:
 			# Assign the provided doc IDs max length
-			self.doc_id_max_len = img_id_max_length + 2
+			self.doc_id_max_len = doc_id_max_length + 2
 		# Initialize the encoded documents and encoded doc IDs lists
-		self.encoded_docs, self.encoded_doc_ids = self.get_dataset(force_dataset_rebuild)
+		self.encoded_docs, self.encoded_doc_ids = self.get_dataset(
+			force_dataset_rebuild)
 
 	def get_dataset(self, force_dataset_rebuild=False):
 		''' Function to build or retrieve the dataset of <encoded_doc, encoded_doc_id> tuples '''
 		if not force_dataset_rebuild and self.save_dataset_file_path is not None and os.path.exists(self.save_dataset_file_path):
-			print(f"Loading the Transformer Indexing Dataset from {self.save_dataset_file_path}...")
+			print(
+				f"Loading the Transformer Indexing Dataset from {self.save_dataset_file_path}...")
 			with open(self.save_dataset_file_path, 'r') as f:
 				dataset = json.load(f)
-			print(f"Loaded {len(dataset['encoded_docs'])} documents from {self.save_dataset_file_path}")
+			print(
+				f"Loaded {len(dataset['encoded_docs'])} documents from {self.save_dataset_file_path}")
 			encoded_docs = [torch.tensor(doc)
 							for doc in dataset['encoded_docs']]
 			doc_ids = [torch.tensor(doc_id)
@@ -96,12 +100,13 @@ class TransformerIndexingDataset(Dataset):
 				preprocessed_text = get_preprocessed_text(document['text'])
 				encoded_doc = self.tokenizer(preprocessed_text,
 											add_special_tokens=True,
-											max_length=self.img_size,
+											max_length=self.doc_max_length,
 											truncation=True,
 											return_tensors='pt'
 											)['input_ids'][0].tolist()
 				# Pad the document sequence to the max encoded document length
-				document_padding_length = self.img_size - len(encoded_doc)
+				document_padding_length = self.doc_max_length - \
+					len(encoded_doc)
 				encoded_doc = functional.pad(
 					torch.tensor(encoded_doc),
 					(0, document_padding_length),
@@ -124,7 +129,8 @@ class TransformerIndexingDataset(Dataset):
 				encoded_docs.append(encoded_doc)
 			# Save the dataset to the file if a save file path is provided
 			if self.save_dataset_file_path is not None:
-				print(f"Saving the Transformer Indexing Dataset to {self.save_dataset_file_path}...")
+				print(
+					f"Saving the Transformer Indexing Dataset to {self.save_dataset_file_path}...")
 				with open(self.save_dataset_file_path, 'w') as f:
 					json.dump({
 						'encoded_docs': [doc.tolist() for doc in encoded_docs],
@@ -178,9 +184,9 @@ class TransformerRetrievalDataset(Dataset):
 			use_fast=True
 		)
 		# Define the doc IDs special tokens
-		self.doc_id_start_token = IMG_ID_START_TOKEN
-		self.doc_id_end_token = IMG_ID_END_TOKEN
-		self.doc_id_padding_token = IMG_ID_PADDING_TOKEN
+		self.doc_id_start_token = DOC_ID_START_TOKEN
+		self.doc_id_end_token = DOC_ID_END_TOKEN
+		self.doc_id_padding_token = DOC_ID_PADDING_TOKEN
 		# Set the maximum doc ID length
 		if doc_id_max_length < 0:
 			# Compute the maximum doc ID length (and add 1 for the start token and 1 for the end token)

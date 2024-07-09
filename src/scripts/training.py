@@ -37,14 +37,13 @@ def train_transformer(transformer_indexing_dataset, transformer_retrieval_datase
 	'''
 
 	# Split the retrieval dataset into training and evaluation sets for the retrieval task
-	indexing_train_size = \
-		int(indexing_split_ratios[0] * len(transformer_indexing_dataset))
-	indexing_validation_size = \
-		len(transformer_indexing_dataset) - indexing_train_size
-	indexing_train_dataset, indexing_validation_dataset = random_split(
-		transformer_indexing_dataset, [
-			indexing_train_size, indexing_validation_size]
-	)
+	indexing_train_size = int(indexing_split_ratios[0] * len(transformer_indexing_dataset))
+	indexing_validation_size = len(transformer_indexing_dataset) - indexing_train_size
+	indexing_train_dataset, indexing_validation_dataset = \
+		random_split(
+			transformer_indexing_dataset, 
+			[indexing_train_size, indexing_validation_size]
+		)
 
 	# Create the training and validation sets dataloaders for the retrieval task
 	indexing_train_dataloader = DataLoader(
@@ -60,13 +59,14 @@ def train_transformer(transformer_indexing_dataset, transformer_retrieval_datase
 	retrieval_train_size = int(retrieval_split_ratios[0] * len(transformer_retrieval_dataset))
 	retrieval_validation_size = int(retrieval_split_ratios[1] * len(transformer_retrieval_dataset))
 	retrieval_test_size = len(transformer_retrieval_dataset) - retrieval_train_size - retrieval_validation_size
-	retrieval_train_dataset, retrieval_validation_dataset, retrieval_test_dataset = random_split(
-		transformer_retrieval_dataset, [
-			retrieval_train_size,
-			retrieval_validation_size,
-			retrieval_test_size
-		]
-	)
+	retrieval_train_dataset, retrieval_validation_dataset, retrieval_test_dataset = \
+		random_split(
+			transformer_retrieval_dataset, [
+				retrieval_train_size,
+				retrieval_validation_size,
+				retrieval_test_size
+			]
+		)
 
 	# Create the training and validation sets dataloaders for the retrieval task
 	retrieval_train_dataloader = DataLoader(
@@ -105,8 +105,7 @@ def train_transformer(transformer_indexing_dataset, transformer_retrieval_datase
 		# Disable checkpointing (to save disk space, checkpoints are saved after training is completed)
 		enable_checkpointing=False
 	)
-	trainer.fit(transformer_model, indexing_train_dataloader,
-				indexing_validation_dataloader)
+	trainer.fit(transformer_model, indexing_train_dataloader, indexing_validation_dataloader)
 	print("Trained the model for the indexing task.")
 	indexing_run_id = None
 	if logger is not None:
@@ -133,8 +132,7 @@ def train_transformer(transformer_indexing_dataset, transformer_retrieval_datase
 			# Disable checkpointing (to save disk space, checkpoints are saved after training is completed)
 			enable_checkpointing=False
 		)
-		trainer.fit(transformer_model, retrieval_train_dataloader,
-					retrieval_validation_dataloader)
+		trainer.fit(transformer_model, retrieval_train_dataloader, retrieval_validation_dataloader)
 		print("Trained the model for the retrieval task.")
 	retrieval_run_id = None
 	if logger is not None and train_retrieval:

@@ -192,7 +192,7 @@ class TransformerImageRetrievalDataset(Dataset):
 			similar_image_ids = self.similar_images.keys()
 			for similar_image_id in tqdm(similar_image_ids, desc='Building TransformerImageRetrievalDataset'):
 				# get all the similar images for the current image
-				relevant_image_ids = self.similar_images[similar_image_id]
+				relevant_image_ids = self.similar_images[similar_image_id]	# List of relevant image IDs (in the database)
 				# For each relevant image ID (in the database)
 				for image_id in relevant_image_ids:
 					# Get the image object from the images dictionary

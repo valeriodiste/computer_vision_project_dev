@@ -67,8 +67,7 @@ def print_model_evaluation_results(map_k_evaluation_results=None, recall_k_evalu
 	if recall_k_evaluation_results is not None:
 		additional_info = ""
 		if "info" in map_k_evaluation_results and recall_k_evaluation_results["info"] is not None and len(recall_k_evaluation_results["info"].keys()) > 0:
-			additional_info = " (" + ", ".join(
-				[f"{key}: {value}" for key, value in recall_k_evaluation_results["info"].items()]) + ")"
+			additional_info = " (" + ", ".join([f"{key}: {value}" for key, value in recall_k_evaluation_results["info"].items()]) + ")"
 		print(f"Recall@{recall_k_evaluation_results['k_documents']} results for the {recall_k_evaluation_results['model']} model{additional_info}:")
 		for i in range(len(recall_k_evaluation_results['recall_at_k_results'])):
 			print(f"  > {recall_k_evaluation_results['recall_at_k_results'][i]}")

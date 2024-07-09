@@ -87,20 +87,16 @@ def compute_mean_average_precision_at_k(model_type, queries_dict, docs_dict, k_d
 			relevant_docs = queries_dict[encoded_query]["relevant_docs"]
 
 			# Compute the TF-IDF matrix
-			query_tfidf = vectorizer.transform(
-				[queries_dict[encoded_query]['text'].lower()])
+			query_tfidf = vectorizer.transform([queries_dict[encoded_query]['text'].lower()])
 
 			# Compute cosine similarities
-			similarities = cosine_similarity(
-				query_tfidf, tfidf_matrix).flatten()
+			similarities = cosine_similarity(query_tfidf, tfidf_matrix).flatten()
 
 			# Get the top K retrieved documents
-			top_k_documents = [encoded_doc_ids[i] for i in np.argsort(
-				similarities, axis=0)[::-1]][:k_documents]
+			top_k_documents = [encoded_doc_ids[i] for i in np.argsort(similarities, axis=0)[::-1]][:k_documents]
 
 			# Count how many of the top K retrieved documents are also in the relevant documents
-			relevant_count = sum(
-				[1 for doc_id in top_k_documents if doc_id in relevant_docs])
+			relevant_count = sum([1 for doc_id in top_k_documents if doc_id in relevant_docs])
 
 			# Compute the precision at k for the query
 			results["evaluated_queries"][encoded_query] = \
@@ -119,10 +115,8 @@ def compute_mean_average_precision_at_k(model_type, queries_dict, docs_dict, k_d
 			for doc_id in tqdm(encoded_doc_ids, f"Computing relevance scores for MAP@K for query {query_index+1}/{n_queries}"):
 				# Compute the cosine similarity between the query and document embeddings
 				relevance_score = functional.cosine_similarity(
-					torch.tensor(queries_dict[encoded_query]
-								["embedding"], dtype=torch.float32),
-					torch.tensor(docs_dict[doc_id]
-								["embedding"], dtype=torch.float32),
+					torch.tensor(queries_dict[encoded_query]["embedding"], dtype=torch.float32),
+					torch.tensor(docs_dict[doc_id]["embedding"], dtype=torch.float32),
 					dim=0
 				).item()
 				# Append the relevance score for this document to the list of relevance scores for this query
@@ -131,16 +125,13 @@ def compute_mean_average_precision_at_k(model_type, queries_dict, docs_dict, k_d
 			# Check if the relevance scores are all equal (i.e., the model is not able to differentiate between the documents)
 			if print_debug:
 				if len(set([relevance_score for _, relevance_score in docs_relevance])) < 5:
-					print(
-						f"  Warning: All the computed relevance scores are too similar for query {encoded_query}, model may not be working properly...")
+					print(f"  Warning: All the computed relevance scores are too similar for query {encoded_query}, model may not be working properly...")
 
 			# Get the top K retrieved documents
-			top_k_documents = [doc_id for doc_id, _ in sorted(
-				docs_relevance, key=lambda x: x[1], reverse=True)][:k_documents]
+			top_k_documents = [doc_id for doc_id, _ in sorted(docs_relevance, key=lambda x: x[1], reverse=True)][:k_documents]
 
 			# Count how many of the top K retrieved documents are also in the relevant documents
-			relevant_count = sum(
-				[1 for doc_id in top_k_documents if doc_id in relevant_docs])
+			relevant_count = sum([1 for doc_id in top_k_documents if doc_id in relevant_docs])
 
 			# Compute the precision at k for the query
 			results["evaluated_queries"][encoded_query] = relevant_count / \
@@ -161,8 +152,7 @@ def compute_mean_average_precision_at_k(model_type, queries_dict, docs_dict, k_d
 			relevant_docs = queries_dict[encoded_query]["relevant_docs"]
 
 			# Get the query embedding
-			query_embedding = torch.tensor(
-				queries_dict[encoded_query]["embedding"], dtype=torch.float32)
+			query_embedding = torch.tensor(queries_dict[encoded_query]["embedding"], dtype=torch.float32)
 
 			# Compute the relevance scores for the documents using the Siamese Network model
 			docs_relevance = []
@@ -183,24 +173,20 @@ def compute_mean_average_precision_at_k(model_type, queries_dict, docs_dict, k_d
 			# Check if the relevance scores are all equal (i.e., the model is not able to differentiate between the documents)
 			if print_debug:
 				if len(set([relevance_score for _, relevance_score in docs_relevance])) < 5:
-					print(
-						f"  Warning: All the computed relevance scores are too similar for query {encoded_query}, model may not be working properly...")
+					print(f"  Warning: All the computed relevance scores are too similar for query {encoded_query}, model may not be working properly...")
 
 			# Get the top K retrieved documents
-			top_k_documents = [doc_id for doc_id, _ in sorted(
-				docs_relevance, key=lambda x: x[1], reverse=True)][:k_documents]
+			top_k_documents = [doc_id for doc_id, _ in sorted(docs_relevance, key=lambda x: x[1], reverse=True)][:k_documents]
 
 			# Count how many of the top K retrieved documents are also in the relevant documents
-			relevant_count = sum(
-				[1 for doc_id in top_k_documents if doc_id in relevant_docs])
+			relevant_count = sum([1 for doc_id in top_k_documents if doc_id in relevant_docs])
 
 			# Compute the precision at k for the query
 			results["evaluated_queries"][encoded_query] = \
 				relevant_count / min(k_documents, len(relevant_docs))
 
 			if print_debug:
-				print(
-					f"  Precision at {k_documents} for query {query_index+1}/{n_queries}: {results['evaluated_queries'][encoded_query]}")
+				print(f"  Precision at {k_documents} for query {query_index+1}/{n_queries}: {results['evaluated_queries'][encoded_query]}")
 
 	elif model_type == MODEL_TYPES.DSI_TRANSFORMER:
 
@@ -250,32 +236,27 @@ def compute_mean_average_precision_at_k(model_type, queries_dict, docs_dict, k_d
 
 			# Print the top k predicted document IDs for the query
 			if print_debug:
-				print(
-					f"Top {k_documents} (predicted) document IDs for query {query_index+1}/{n_queries}:")
+				print(f"Top {k_documents} (predicted) document IDs for query {query_index+1}/{n_queries}:")
 				print(f"  {top_k_doc_ids}")
-				print(
-					f"> Actual relevant document IDs for the query:")
+				print(f"> Actual relevant document IDs for the query:")
 				print(f"  {relevant_docs}")
 
 			# Count how many of the top K retrieved documents are also in the relevant documents
-			relevant_count = sum(
-				[1 for doc_id in top_k_doc_ids if doc_id in relevant_docs])
+			relevant_count = sum([1 for doc_id in top_k_doc_ids if doc_id in relevant_docs])
 
 			# Compute the precision at k for the query
 			results["evaluated_queries"][query_id] = relevant_count / \
 				min(k_documents, len(relevant_docs))
 
 			if print_debug:
-				print(
-					f"  Precision at {k_documents} for query {query_index+1}/{n_queries}: {results['evaluated_queries'][query_id]}")
+				print(f"  Precision at {k_documents} for query {query_index+1}/{n_queries}: {results['evaluated_queries'][query_id]}")
 
 	else:
 		raise ValueError("Invalid model")
 
 	# Compute the mean average precision
 	if results["evaluated_queries"] != {}:
-		results["mean_average_precision"] = np.mean(
-			list(results["evaluated_queries"].values()))
+		results["mean_average_precision"] = np.mean(list(results["evaluated_queries"].values()))
 
 	return results
 
@@ -340,24 +321,19 @@ def compute_recall_at_k(model_type, queries_dict, docs_dict, query_ids=None, k_d
 			vectorizer = kwargs["vectorizer"]
 
 			# Compute the TF-IDF matrix
-			query_tfidf = vectorizer.transform(
-				[queries_dict[query_id]['text'].lower()])
+			query_tfidf = vectorizer.transform([queries_dict[query_id]['text'].lower()])
 
 			# Compute cosine similarities
-			similarities = cosine_similarity(
-				query_tfidf, tfidf_matrix).flatten()
+			similarities = cosine_similarity(query_tfidf, tfidf_matrix).flatten()
 
 			# Get the top K retrieved documents
-			top_k_documents = [encoded_doc_ids[i] for i in np.argsort(
-				similarities, axis=0)[::-1]][:k_documents]
+			top_k_documents = [encoded_doc_ids[i] for i in np.argsort(similarities, axis=0)[::-1]][:k_documents]
 
 			# Count how many of the top K retrieved documents are also in the relevant documents
-			relevant_count = sum(
-				[1 for doc_id in top_k_documents if doc_id in relevant_docs])
+			relevant_count = sum([1 for doc_id in top_k_documents if doc_id in relevant_docs])
 
 			# Compute the recall at k for the query
-			results["recall_at_k_results"].append(
-				relevant_count / len(relevant_docs))
+			results["recall_at_k_results"].append(relevant_count / len(relevant_docs))
 
 	elif model_type == MODEL_TYPES.WORD2VEC:
 
@@ -372,26 +348,21 @@ def compute_recall_at_k(model_type, queries_dict, docs_dict, query_ids=None, k_d
 			for doc_id in tqdm(encoded_doc_ids, "Computing relevance scores for Recall@K..."):
 				# Compute the cosine similarity between the query and document embeddings
 				relevance_score = functional.cosine_similarity(
-					torch.tensor(queries_dict[query_id]
-								["embedding"], dtype=torch.float32),
-					torch.tensor(docs_dict[doc_id]
-								["embedding"], dtype=torch.float32),
+					torch.tensor(queries_dict[query_id]["embedding"], dtype=torch.float32),
+					torch.tensor(docs_dict[doc_id]["embedding"], dtype=torch.float32),
 					dim=0
 				).item()
 				# Append the relevance score for this document to the list of relevance scores for this query
 				docs_relevance.append((doc_id, relevance_score))
 
 			# Get the top K retrieved documents
-			top_k_documents = [doc_id for doc_id, _ in sorted(
-				docs_relevance, key=lambda x: x[1], reverse=True)][:k_documents]
+			top_k_documents = [doc_id for doc_id, _ in sorted(docs_relevance, key=lambda x: x[1], reverse=True)][:k_documents]
 
 			# Count how many of the top K retrieved documents are also in the relevant documents
-			relevant_count = sum(
-				[1 for doc_id in top_k_documents if doc_id in relevant_docs])
+			relevant_count = sum([1 for doc_id in top_k_documents if doc_id in relevant_docs])
 
 			# Compute the recall at k for the query
-			results["recall_at_k_results"].append(
-				relevant_count / len(relevant_docs))
+			results["recall_at_k_results"].append(relevant_count / len(relevant_docs))
 
 	elif model_type == MODEL_TYPES.SIAMESE_NETWORK:
 
@@ -408,8 +379,7 @@ def compute_recall_at_k(model_type, queries_dict, docs_dict, query_ids=None, k_d
 			siamese_network_model.eval()
 
 			# Get the query embedding
-			query_embedding = torch.tensor(
-				queries_dict[query_id]["embedding"], dtype=torch.float32)
+			query_embedding = torch.tensor(queries_dict[query_id]["embedding"], dtype=torch.float32)
 
 			# Compute the relevance scores for the documents using the Siamese Network model
 			docs_relevance = []
@@ -428,16 +398,13 @@ def compute_recall_at_k(model_type, queries_dict, docs_dict, query_ids=None, k_d
 				docs_relevance.append((doc_id, relevance_score))
 
 			# Get the top K retrieved documents
-			top_k_documents = [doc_id for doc_id, _ in sorted(
-				docs_relevance, key=lambda x: x[1], reverse=True)][:k_documents]
+			top_k_documents = [doc_id for doc_id, _ in sorted(docs_relevance, key=lambda x: x[1], reverse=True)][:k_documents]
 
 			# Count how many of the top K retrieved documents are also in the relevant documents
-			relevant_count = sum(
-				[1 for doc_id in top_k_documents if doc_id in relevant_docs])
+			relevant_count = sum([1 for doc_id in top_k_documents if doc_id in relevant_docs])
 
 			# Compute the recall at k for the query
-			results["recall_at_k_results"].append(
-				relevant_count / len(relevant_docs))
+			results["recall_at_k_results"].append(relevant_count / len(relevant_docs))
 
 	elif model_type == MODEL_TYPES.DSI_TRANSFORMER:
 
@@ -493,19 +460,16 @@ def compute_recall_at_k(model_type, queries_dict, docs_dict, query_ids=None, k_d
 
 			# Print the top k predicted document IDs for the query
 			if print_debug:
-				print(
-					f"Top {k_documents} (predicted) document IDs for query {query_id}:")
+				print(f"Top {k_documents} (predicted) document IDs for query {query_id}:")
 				print(f"  {top_k_doc_ids}")
 				print(f"> Actual relevant document IDs for the query:")
 				print(f"  {relevant_docs}")
 
 			# Count how many of the top K retrieved documents are also in the relevant documents
-			relevant_count = sum(
-				[1 for doc_id in top_k_doc_ids if doc_id in relevant_docs])
+			relevant_count = sum([1 for doc_id in top_k_doc_ids if doc_id in relevant_docs])
 
 			# Compute the recall at k for the query
-			results["recall_at_k_results"].append(
-				relevant_count / len(relevant_docs))
+			results["recall_at_k_results"].append(relevant_count / len(relevant_docs))
 
 	else:
 		raise ValueError("Invalid model")

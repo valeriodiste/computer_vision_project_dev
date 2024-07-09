@@ -23,8 +23,8 @@ try:
 	from src.scripts import datasets	 # type: ignore
 	from src.scripts.utils import RANDOM_SEED	 # type: ignore
 except ModuleNotFoundError:
-	from computer_vision_project.src.scripts import datasets	 # type: ignore
-	from computer_vision_project.src.scripts.utils import RANDOM_SEED 	# type: ignore
+	from computer_vision_project_dev.src.scripts import datasets	 # type: ignore
+	from computer_vision_project_dev.src.scripts.utils import RANDOM_SEED 	# type: ignore
 
 # Seed random number generators for reproducibility
 np.random.seed(RANDOM_SEED)

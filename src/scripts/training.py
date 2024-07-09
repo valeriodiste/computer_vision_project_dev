@@ -10,9 +10,9 @@ import wandb
 from torch.utils.data import DataLoader, random_split
 # Import custom modules
 try:
-	from src.scripts.utils import RANDOM_SEED
+	from src.scripts.utils import RANDOM_SEED	 # type: ignore
 except ModuleNotFoundError:
-	from computer_vision_project_dev.src.scripts.utils import RANDOM_SEED
+	from computer_vision_project_dev.src.scripts.utils import RANDOM_SEED	 # type: ignore
 
 # Seed random number generators for reproducibility
 torch.manual_seed(RANDOM_SEED)

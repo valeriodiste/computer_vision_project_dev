@@ -2,6 +2,9 @@ import json
 import string
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
+import numpy as np
+import base64
+import cv2
 
 # Random seed for reproducibility
 RANDOM_SEED = 1
@@ -27,16 +30,13 @@ def print_model_evaluation_results(map_k_evaluation_results=None, recall_k_evalu
 	if map_k_evaluation_results is not None:
 		additional_info = ""
 		if "info" in map_k_evaluation_results and map_k_evaluation_results["info"] is not None and len(map_k_evaluation_results["info"].keys()) > 0:
-			additional_info = " (" + ", ".join(
-				[f"{key}: {value}" for key, value in map_k_evaluation_results["info"].items()]) + ")"
-		print(
-			f"MAP@{map_k_evaluation_results['k_documents']} for the {map_k_evaluation_results['model']} model{additional_info}:")
+			additional_info = " (" + ", ".join([f"{key}: {value}" for key, value in map_k_evaluation_results["info"].items()]) + ")"
+		print(f"MAP@{map_k_evaluation_results['k_documents']} for the {map_k_evaluation_results['model']} model{additional_info}:")
 		print(f"  > {map_k_evaluation_results['mean_average_precision']}")
 		print(f"  Computed on {map_k_evaluation_results['n_queries']} queries")
 		print(f"  Single queries precision:")
 		for query_id in map_k_evaluation_results['evaluated_queries'].keys():
-			print(
-				f"    Query {query_id}: {map_k_evaluation_results['evaluated_queries'][query_id]}")
+			print(f"    Query {query_id}: {map_k_evaluation_results['evaluated_queries'][query_id]}")
 	else:
 		print(f"No MAP@K evaluation results for the model")
 	# Print the Recall@K evaluation results
@@ -45,12 +45,20 @@ def print_model_evaluation_results(map_k_evaluation_results=None, recall_k_evalu
 		if "info" in map_k_evaluation_results and recall_k_evaluation_results["info"] is not None and len(recall_k_evaluation_results["info"].keys()) > 0:
 			additional_info = " (" + ", ".join(
 				[f"{key}: {value}" for key, value in recall_k_evaluation_results["info"].items()]) + ")"
-		print(
-			f"Recall@{recall_k_evaluation_results['k_documents']} results for the {recall_k_evaluation_results['model']} model{additional_info}:")
+		print(f"Recall@{recall_k_evaluation_results['k_documents']} results for the {recall_k_evaluation_results['model']} model{additional_info}:")
 		for i in range(len(recall_k_evaluation_results['recall_at_k_results'])):
-			print(
-				f"  > {recall_k_evaluation_results['recall_at_k_results'][i]}")
-			print(
-				f"    Computed for query {recall_k_evaluation_results['query_ids'][i]}")
+			print(f"  > {recall_k_evaluation_results['recall_at_k_results'][i]}")
+			print(f"    Computed for query {recall_k_evaluation_results['query_ids'][i]}")
 	else:
 		print(f"No Recall@K evaluation results for the model")
+
+# Function to get the actual image (viewable using "plt.imgshow(image)") given the image object in the "images_db" list
+def get_image_from_db_object(image_obj):
+	'''
+	Returns the image as a cv2 image object from the given image object in the "images_db" list
+	'''
+	# Convert the base64 string to an image
+	image_data = base64.b64decode(image_obj["image_data"])
+	image_np = np.frombuffer(image_data, np.uint8)
+	image = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
+	return image

@@ -20,11 +20,11 @@ import math
 import numpy as np
 # Import custom modules
 try:
-	from src.scripts import datasets
-	from src.scripts.utils import RANDOM_SEED
+	from src.scripts import datasets	 # type: ignore
+	from src.scripts.utils import RANDOM_SEED	 # type: ignore
 except ModuleNotFoundError:
-	from computer_vision_project.src.scripts import datasets
-	from computer_vision_project.src.scripts.utils import RANDOM_SEED
+	from computer_vision_project.src.scripts import datasets	 # type: ignore
+	from computer_vision_project.src.scripts.utils import RANDOM_SEED 	# type: ignore
 
 # Seed random number generators for reproducibility
 np.random.seed(RANDOM_SEED)
@@ -168,7 +168,7 @@ class DSI_ViT(nn.Module):
 	
 	def forward(self, imgs, ids):
 		'''
-			Expects as input a tensor of images and a tensor of image IDs.
+			Expects as input a tensor of B images and a tensor of B image IDs (with B size of the batch, i.e. number of <image, image ID> pairs in the batch)
 
 			The image tensor has a shape [B, C, H, W] where:
 			- B = batch size (number of images in the batch)

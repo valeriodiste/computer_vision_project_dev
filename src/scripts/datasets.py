@@ -14,7 +14,7 @@ try:
 	from src.scripts.utils import RANDOM_SEED, get_image_from_b64_string	 # type: ignore
 	from tqdm import tqdm
 except ModuleNotFoundError:
-	from computer_vision_project_dev.src.scripts.utils import RANDOM_SEED, get_image_from_db_object # type: ignore
+	from computer_vision_project_dev.src.scripts.utils import RANDOM_SEED, get_image_from_b64_string # type: ignore
 	from tqdm.notebook import tqdm
 
 # Seed random number generators for reproducibility

@@ -92,7 +92,7 @@ class TransformerIndexingDataset(Dataset):
 				# Load the image from the image object
 				image = get_image_from_db_object(image_obj) # Image is returned as a cv2 image object
 				# Encode the image into a torch tensor of shape [C, H, W], where C is the number of channels (e.g. 3 for RGB), H is the height, and W is the width
-				encoded_img = torch.tensor(image, dtype=torch.float32).permute(2, 0, 1)
+				encoded_img = torch.tensor(image).permute(2, 0, 1)
 				# Encode the image ID
 				img_id_padding_length = self.img_id_max_len - len(str(image_id))	# Padding length: N - M  (with N max digit for each image ID, and M number of digits of the image ID)
 				encoded_img_id = torch.tensor(

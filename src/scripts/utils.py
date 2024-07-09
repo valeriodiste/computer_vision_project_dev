@@ -9,7 +9,7 @@ RANDOM_SEED = 1
 # Path of the model checkpoint file
 MODEL_CHECKPOINT_FILE = "transformer.ckpt"
 
-def print_json(json_obj, indent_all_by_tabs=0, compact=True, exclude_keys=[]):
+def print_json(json_obj, indent_all_by_tabs=0, compact=True):
 	''' Print the given JSON object in a readable format '''
 	json_lines = json.dumps(json_obj, indent=2).split("\n")
 	if compact:
@@ -19,14 +19,7 @@ def print_json(json_obj, indent_all_by_tabs=0, compact=True, exclude_keys=[]):
 		if json_lines[-1].strip() == "}":
 			json_lines = json_lines[:-1]
 	for line in json_lines:
-		if len(exclude_keys) == 0:
-			print(" " * indent_all_by_tabs + line)
-		else:
-			for key in exclude_keys:
-				if f'"{key}"' in line:
-					break
-			else:
-				print(" " * indent_all_by_tabs + line)
+		print(" " * indent_all_by_tabs + line)
 
 def print_model_evaluation_results(map_k_evaluation_results=None, recall_k_evaluation_results=None):
 	''' Print the MAP@K and Recall@K evaluation results for the model '''

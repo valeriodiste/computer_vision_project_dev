@@ -12,8 +12,31 @@ RANDOM_SEED = 1
 # Path of the model checkpoint file
 MODEL_CHECKPOINT_FILE = "transformer.ckpt"
 
-def print_json(json_obj, indent_all_by_tabs=0, compact=True):
+def print_json(json_obj, indent_all_by_tabs=0, compact=True, truncate_large_lists=-1, truncate_large_dicts=-1):
 	''' Print the given JSON object in a readable format '''
+	# Truncate the fields and values of large lists and dictionaries
+	def truncate_large_list(list_obj, max_elements):
+		if max_elements < 0:
+			return list_obj
+		if len(list_obj) > max_elements:
+			return list_obj[:max_elements] + ["..."] + ["(Truncated to " + str(max_elements) + " out of " + str(len(list_obj)) + " elements)"]
+		return list_obj
+	def truncate_large_dict(dict_obj, max_elements):
+		if max_elements < 0:
+			return dict_obj
+		if len(dict_obj) > max_elements:
+			return {key: dict_obj[key] for key in list(dict_obj.keys())[:max_elements]} | {"...": "(Truncated to " + str(max_elements) + " out of " + str(len(dict_obj)) + " elements)"}
+		return dict_obj
+	# Truncate the fields and values of large lists and dictionaries of the JSON object recursively
+	def truncate_large_lists_and_dicts(json_obj, max_list_elements, max_dict_elements):
+		if isinstance(json_obj, list):
+			return truncate_large_list([truncate_large_lists_and_dicts(item, max_list_elements, max_dict_elements) for item in json_obj], max_list_elements)
+		elif isinstance(json_obj, dict):
+			return truncate_large_dict({key: truncate_large_lists_and_dicts(json_obj[key], max_list_elements, max_dict_elements) for key in json_obj.keys()}, max_dict_elements)
+		return json_obj
+	# Truncate the fields and values of large lists and dictionaries of the JSON object
+	json_obj = truncate_large_lists_and_dicts(json_obj, truncate_large_lists, truncate_large_dicts)
+	# Convert the JSON object to a string
 	json_lines = json.dumps(json_obj, indent=2).split("\n")
 	if compact:
 		# Remove first and last lines if they contain only brackets

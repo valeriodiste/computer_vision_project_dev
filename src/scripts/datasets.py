@@ -32,8 +32,8 @@ class TransformerIndexingDataset(Dataset):
 	def __init__(
 		self,
 		images: list,
-		patch_size: int = 16,
 		img_patches: int = 10,
+		patch_size: int = 16,
 		img_id_max_length: int = -1,
 		dataset_file_path: str = None,
 		force_dataset_rebuild: bool = False
@@ -43,8 +43,8 @@ class TransformerIndexingDataset(Dataset):
 
 		Args:
 		- images: list, a list containing the images data, the images database
-		- patch_size: int, the size of the image patches
 		- img_patches: int, the number of patches per dimension for each image
+		- patch_size: int, the size of the image patches
 		- img_id_max_length: int, the maximum length of the image IDs sequence
 		- dataset_file_path: str, the path of the JSON file in which the <image, image_id> pairs data will be saved or from which it will be loaded
 		- force_dataset_rebuild: bool, a flag to force the rebuilding of the dataset (if false, a dataset file path is provided, and the file exists, the dataset will be loaded from the file)
@@ -52,8 +52,8 @@ class TransformerIndexingDataset(Dataset):
 		# Store the images dictionary
 		self.images = images
 		# Store the patch and image size
-		self.patch_size = patch_size
 		self.img_patches = img_patches
+		self.patch_size = patch_size
 		# Store the dataset file path
 		self.save_dataset_file_path = dataset_file_path
 		# Define the image IDs special tokens
@@ -63,7 +63,7 @@ class TransformerIndexingDataset(Dataset):
 		# Set the maximum image ID length
 		if img_id_max_length < 0:
 			# Compute the maximum image ID length (and add 2: 1 for the start special token and 1 for the end special token)
-			self.img_id_max_len = max(len(str(img_id)) for img_id in images.keys()) + 2
+			self.img_id_max_len = max(len(str(img_id)) for img_id in range(len(images))) + 2
 		else:
 			# Assign the provided image IDs max length
 			self.img_id_max_len = img_id_max_length + 2	# Add 2: 1 for the start special token and 1 for the end special token
@@ -71,7 +71,7 @@ class TransformerIndexingDataset(Dataset):
 		self.encoded_imgs, self.encoded_img_ids = self.get_dataset(force_dataset_rebuild)
 
 	def get_dataset(self, force_dataset_rebuild=False):
-		''' Function to build or retrieve the dataset of <encoded_images, encoded_image_id> tuples '''
+		''' Function to build or retrieve the dataset of <encoded_images, encoded_image_id> tuples for tthe indexing phase '''
 		if not force_dataset_rebuild and self.save_dataset_file_path is not None and os.path.exists(self.save_dataset_file_path):
 			print(f"Loading the Vision Transformer Indexing Dataset from {self.save_dataset_file_path}...")
 			with open(self.save_dataset_file_path, 'r') as f:
@@ -106,8 +106,8 @@ class TransformerIndexingDataset(Dataset):
 					[self.img_id_padding_token] * img_id_padding_length
 				)
 				# Add the encoded image and image ID to the lists
-				encoded_image_ids.append(encoded_img_id)
 				encoded_images.append(encoded_img)
+				encoded_image_ids.append(encoded_img_id)
 			# Save the dataset to the file if a save file path is provided
 			if self.save_dataset_file_path is not None:
 				print(f"Saving the Vision Transformer Indexing Dataset to {self.save_dataset_file_path}...")
@@ -124,6 +124,107 @@ class TransformerIndexingDataset(Dataset):
 
 	def __getitem__(self, idx):
 		return self.encoded_imgs[idx], self.encoded_img_ids[idx]
+
+
+class TransformerImageRetrievalDataset(Dataset):
+
+	# Initialize the dataset of tuples (encoded_imgs, encoded_img_id) for the image retrieval phase (Transformer models learns to map images to relevant image IDs)
+	def __init__(
+		self,
+		images: list,
+		img_patches: int = 10,
+		patch_size: int = 16,
+		img_id_max_length: int = -1,
+		dataset_file_path: str = None,
+		force_dataset_rebuild: bool = False
+	):
+		'''
+		Constructor of the TransformerImageRetrievalDataset class.
+
+		Args:
+		- images: list, a list containing the images data, the images database
+		- img_patches: int, the number of patches per dimension for each image
+		- patch_size: int, the size of the image patches
+		- img_id_max_length: int, the maximum length of the image IDs sequence
+		- dataset_file_path: str, the path of the JSON file in which the <image, image_id> pairs data will be saved or from which it will be loaded
+		- force_dataset_rebuild: bool, a flag to force the rebuilding of the dataset (if false, a dataset file path is provided, and the file exists, the dataset will be loaded from the file)
+		'''
+		# Store the images dictionary
+		self.images = images
+		# Store the patch and image size
+		self.img_patches = img_patches
+		self.patch_size = patch_size
+		# Store the dataset file path
+		self.save_dataset_file_path = dataset_file_path
+		# Define the image IDs special tokens
+		self.img_id_start_token = IMG_ID_START_TOKEN
+		self.img_id_end_token = IMG_ID_END_TOKEN
+		self.img_id_padding_token = IMG_ID_PADDING_TOKEN
+		# Set the maximum image ID length
+		if img_id_max_length < 0:
+			# Compute the maximum image ID length (and add 2: 1 for the start special token and 1 for the end special token)
+			self.img_id_max_len = max(len(str(img_id)) for img_id in range(len(images))) + 2
+		else:
+			# Assign the provided image IDs max length
+			self.img_id_max_len = img_id_max_length + 2	# Add 2: 1 for the start special token and 1 for the end special token
+		# Initialize the encoded image and encoded image IDs lists
+		self.encoded_imgs, self.encoded_img_ids = self.get_dataset(force_dataset_rebuild)
+
+	def get_dataset(self, force_dataset_rebuild=False):
+		''' Function to build or retrieve the dataset of <encoded_images, encoded_image_id> tuples for image retrieval '''
+		if not force_dataset_rebuild and self.save_dataset_file_path is not None and os.path.exists(self.save_dataset_file_path):
+			print(f"Loading the Vision Transformer Indexing Dataset from {self.save_dataset_file_path}...")
+			with open(self.save_dataset_file_path, 'r') as f:
+				dataset = json.load(f)
+			print(f"Loaded {len(dataset['encoded_images'])} images from {self.save_dataset_file_path}")
+			encoded_images = [torch.tensor(img) for img in dataset['encoded_images']]
+			encoded_relevant_image_ids = [torch.tensor(img_id) for img_id in dataset['encoded_image_ids']]
+			return encoded_images, encoded_relevant_image_ids
+		else:
+			# Initialize the encoded images and image IDs lists
+			encoded_relevant_image_ids = []
+			encoded_images = []
+			# For each image in the images list
+			image_ids = range(len(self.images))
+			for image_id in tqdm(image_ids, desc='Building TransformerImageRetrievalDataset'):
+				# Get the image object from the images dictionary
+				image_obj = self.images[image_id]
+				# Load the image from the image object
+				image = get_image_from_db_object(image_obj) # Image is returned as a cv2 image object
+				# Encode the image into a torch tensor of shape [C, H, W], where C is the number of channels (e.g. 3 for RGB), H is the height, and W is the width
+				encoded_img = torch.tensor(image).permute(2, 0, 1)
+				# Encode the image ID
+				img_id_padding_length = self.img_id_max_len - len(str(image_id))	# Padding length: N - M  (with N max digit for each image ID, and M number of digits of the image ID)
+				encoded_img_id = torch.tensor(
+					# Start of sequence token
+					[self.img_id_start_token] +
+					# Encoded image ID (list of integers, each representing a digit of the M total digits of the ID)
+					list(map(int, str(image_id))) +
+					# End of sequence token
+					[self.img_id_end_token] +
+					# Padding tokens (if needed)
+					[self.img_id_padding_token] * img_id_padding_length
+				)
+				# Add the encoded image and image ID to the lists
+				encoded_images.append(encoded_img)
+				encoded_relevant_image_ids.append(encoded_img_id)
+			# Save the dataset to the file if a save file path is provided
+			if self.save_dataset_file_path is not None:
+				print(f"Saving the Vision Transformer Image Retrieval Dataset to {self.save_dataset_file_path}...")
+				with open(self.save_dataset_file_path, 'w') as f:
+					json.dump({
+						'encoded_images': [img.tolist() for img in encoded_images],
+						'encoded_image_ids': [img_id.tolist() for img_id in encoded_relevant_image_ids]
+					}, f)
+			# Return the encoded images and image IDs
+			return encoded_images, encoded_relevant_image_ids
+
+	def __len__(self):
+		return len(self.encoded_imgs)
+
+	def __getitem__(self, idx):
+		return self.encoded_imgs[idx], self.encoded_img_ids[idx]
+
 
 # class TransformerRetrievalDataset(Dataset):
 

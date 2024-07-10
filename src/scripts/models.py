@@ -98,6 +98,7 @@ class DSI_ViT(nn.Module):
 		img_id_padding_token,
 		# Training parameters
 		dropout=0.0,
+		learning_rate=1e-4,
 	):
 		"""Vision Transformer.
 

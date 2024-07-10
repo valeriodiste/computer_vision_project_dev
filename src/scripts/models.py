@@ -35,7 +35,7 @@ random.seed(RANDOM_SEED)
 
 class DSI_VisionTransformer(pl.LightningModule):
 
-	def __init__(self, model_kwargs, lr):
+	def __init__(self, model_kwargs):
 		super().__init__()
 		self.save_hyperparameters()
 		self.model = DSI_ViT(**model_kwargs)

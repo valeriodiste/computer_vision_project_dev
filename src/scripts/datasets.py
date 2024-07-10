@@ -190,7 +190,7 @@ class TransformerImageRetrievalDataset(Dataset):
 			encoded_images = []
 			# For each image in the images similarity dictionary
 			similar_image_ids = self.similar_images.keys()
-			if type(similar_image_ids[0]) == str:
+			if type(list(similar_image_ids)[0]) == str:
 				similar_image_ids = list(map(int, similar_image_ids))	# Remap keys ot integers in case they are strings (e.g. loaded from a JSON file)
 			for similar_image_id in tqdm(similar_image_ids, desc='Building TransformerImageRetrievalDataset'):
 				# get all the similar images for the current image

@@ -114,9 +114,6 @@ def train_transformer(transformer_indexing_dataset, transformer_retrieval_datase
 		# Finish the current run
 		logger[0].experiment.finish(quiet=True)
 
-	# Reset the model's schdeduled sampling probability for the retrieval task
-	transformer_model.reset_scheduled_sampling_probability()
-
 	# Train the model (using the PyTorch Lightning's Trainer) for the retrieval task
 	if train_retrieval:
 		print("Training the model for the retrieval task...")

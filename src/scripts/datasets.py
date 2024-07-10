@@ -167,7 +167,7 @@ class TransformerImageRetrievalDataset(Dataset):
 		# Set the maximum image ID length
 		if img_id_max_length < 0:
 			# Compute the maximum image ID length (and add 2: 1 for the start special token and 1 for the end special token)
-			self.img_id_max_len = max(len(str(img_id)) for img_id in range(len(images))) + 2
+			self.img_id_max_len = max(len(str(img_id)) for img_id in range(len(all_images))) + 2
 		else:
 			# Assign the provided image IDs max length
 			self.img_id_max_len = img_id_max_length + 2	# Add 2: 1 for the start special token and 1 for the end special token

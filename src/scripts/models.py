@@ -232,14 +232,15 @@ class DSI_ViT(nn.Module):
 		imgs = self.input_layer(imgs) # Convert the input images' patches into embeddings, i.e. vectors (one for each patch) of size "embed_dim"
 
 		# Convert the image IDs into embeddings
-		M = ids.shape[1]				# The number of digits in the image ID
+		M = ids.shape[1]				# The number of digits in the current (possibly incomplete, hence M<N) image ID given as input to the model
 		N = self.img_id_max_length		# The maximum number of digits in the image ID
 		# Convert ids into float32
 		# ids = ids.float()
 		print("ids.shape:", ids.shape)
-		print("N=", self.img_id_max_length)
+		print("M=", M)
+		print("N=", N)
 		# Convert each digit of the image ID into an embedding (i.e. a vector of size "embed_dim")
-		ids = self.id_embedding(ids)
+		ids = self.id_embedding(ids)	# Shape: [B, M, embed_dim]
 		# ids = ids.float()
 
 		print("imgs.shape (processed):", imgs.shape)
@@ -279,17 +280,21 @@ class DSI_ViT(nn.Module):
 		# Get a mask for the image ID embeddings
 		# - The mask is True for the padding tokens and False for the other tokens
 		# - The mask is used to avoid the Transformer to consider the padding tokens in the computation
-		padding_mask = (ids == self.img_id_padding_token)
+		# padding_mask = (ids == self.img_id_padding_token)
+		# padding_mask = (x == mask_token)	# Should be a 2D tensor of shape [B, N] (B is the batch size and N is the maximum number of digits in the image ID)
+		padding_mask = (ids[:, :, 0] == self.img_id_padding_token)	# Should be a 2D tensor of shape [B, N] (B is the batch size and N is the maximum number of digits in the image ID)
+		print("padding_mask.shape:", padding_mask.shape)
 
 		# Get a mask for the attention mechanism (i.e. mask the future tokens) from the masking sequence
 		# - The mask is True for the future tokens and False for the other tokens
 		# - The mask is used to avoid the Transformer to consider the future tokens in the computation
-		attention_mask = nn.Transformer.generate_square_subsequent_mask(N, device=self.device, dtype=torch.bool)
+		attention_mask = nn.Transformer.generate_square_subsequent_mask(T + N, device=self.device)	# Should be a 2D tensor of shape [T + N, T + N] (T is the total number of patches in the image and N is the maximum number of digits in the image ID)
 
 		# Apply Transforrmer
 		x = self.dropout(x)
 		x = x.transpose(0, 1)
-		x = self.transformer(x, padding_mask=padding_mask, attention_mask=attention_mask)
+		transformer_input = (x, padding_mask, attention_mask)	# The first "attention block" layer of the transformer expects a tuple of three elements: the input tensor, the padding mask, and the attention mask
+		x = self.transformer(transformer_input)
 
 		# Perform classification prediction
 		cls = x[-1]		# The last element of the output is the CLS token, i.e. in this case the last token of the image ID (the predicted token digit given an image and the start digits of the token ID)
@@ -311,7 +316,8 @@ class DSI_ViT(nn.Module):
 								# - W is the width of the image
 								# - N is the maximum number of digits in the image ID
 		B, C, H, W = input.shape
-		N = target.shape[1]
+		N = self.img_id_max_length
+		print("B=", B, ", C=", C, ", H=", H, ", W=", W, ", N=", N)
 		# print("input:", input)
 		# print("target:", target)
 		print("input.shape:", input.shape)
@@ -432,12 +438,22 @@ class AttentionBlock(nn.Module):
 			nn.Dropout(dropout),
 		)
 
-	def forward(self, x, padding_mask=None, attention_mask=None):
+	def forward(self, x):
+
+		# Takes as input x a tuple of three elements:
+		# - x[0] is the input tensor (B, T, V) where:
+		#	- B is the batch size
+		#	- T is the number of tokens in the sequence
+		#	- V is the size of the token vectors
+		# - x[1] is the padding mask for the input tensor
+		# - x[2] is the attention mask for the input tensor
+
 		# inp_x = self.layer_norm_1(x)
 		# x = x + self.attn(inp_x, inp_x, inp_x)[0]
 		# x = x + self.linear(self.layer_norm_2(x))
-		inp_x = self.layer_norm_1(x)
-		x = x + self.attn(inp_x, inp_x, inp_x, key_padding_mask=padding_mask, attn_mask=attention_mask)[0]
-		x = x + self.linear(self.layer_norm_2(x))
+		input, padding_mask, attention_mask = x
+		inp_x = self.layer_norm_1(input)
+		input = input + self.attn(inp_x, inp_x, inp_x, key_padding_mask=padding_mask, attn_mask=attention_mask)[0]
+		input = input + self.linear(self.layer_norm_2(x))
 
-		return x
+		return input

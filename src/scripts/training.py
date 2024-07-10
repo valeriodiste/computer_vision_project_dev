@@ -101,7 +101,7 @@ def train_transformer(transformer_indexing_dataset, transformer_retrieval_datase
 		#   are present before starting training (rather than during training itself)
 		num_sanity_val_steps=0,
 		# Set the logger if provided
-		logger=logger[0],
+		logger=logger[0] if logger is not None else None,
 		# Disable checkpointing (to save disk space, checkpoints are saved after training is completed)
 		enable_checkpointing=False
 	)
@@ -125,7 +125,7 @@ def train_transformer(transformer_indexing_dataset, transformer_retrieval_datase
 			#   are present before starting training (rather than during training itself)
 			num_sanity_val_steps=0,
 			# Set the logger if provided
-			logger=logger[1],
+			logger=logger[1] if logger is not None else None,
 			# Disable checkpointing (to save disk space, checkpoints are saved after training is completed)
 			enable_checkpointing=False
 		)

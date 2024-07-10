@@ -80,7 +80,7 @@ class DSI_VisionTransformer(pl.LightningModule):
 	# 	self._calculate_loss(batch, mode="test")
 
 	def training_step(self, batch, batch_idx):
-		print("batch:", batch)
+		# print("batch:", batch)
 		# Training step for the model (compute the loss and accuracy)
 		loss, accuracy = self.model.step(batch)
 		# Append the loss to the training losses list (for logging)
@@ -91,7 +91,7 @@ class DSI_VisionTransformer(pl.LightningModule):
 		return loss
 
 	def validation_step(self, batch, batch_idx):
-		print("batch:", batch)
+		# print("batch:", batch)
 		# Validation step for the model (compute the loss and accuracy)
 		loss, accuracy = self.model.step(batch, True)
 		# Append the loss to the validation losses list (for logging)
@@ -154,10 +154,17 @@ class DSI_ViT(nn.Module):
 		self.img_id_end_token = img_id_end_token
 		self.img_id_padding_token = img_id_padding_token
 
+		self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 		# Layers/Networks
 		self.input_layer = nn.Linear(num_channels * (patch_size**2), embed_dim)	# Convert the input image's patches into embeddings, i.e. vectors (one for each patch) of size "embed_dim"
+		# self.id_embedding = nn.Embedding(	# Embedding layer for the image ID digits (the 10 digits [0-9] plus the 3 special tokens, i.e. end of sequence, padding, start of sequence)
+		# 	num_classes, 	# 10+3 possible digits (10 digits + 3 special tokens)
+		# 	embed_dim,
+		# 	padding_idx=img_id_padding_token	# The padding index is the index of the digit that represents the padding (i.e. the digit that is used to pad the image ID to the maximum length)
+		# )
 		self.id_embedding = nn.Embedding(	# Embedding layer for the image ID digits (the 10 digits [0-9] plus the 3 special tokens, i.e. end of sequence, padding, start of sequence)
-			num_classes, 	# 10+3 possible digits (10 digits + 3 special tokens)
+			num_classes, # The maximum number of digits in the image ID
 			embed_dim,
 			padding_idx=img_id_padding_token	# The padding index is the index of the digit that represents the padding (i.e. the digit that is used to pad the image ID to the maximum length)
 		)
@@ -173,9 +180,9 @@ class DSI_ViT(nn.Module):
 
 		# Parameters/Embeddings
 		# self.cls_token = nn.Parameter(torch.randn(1, 1, embed_dim))
-		self.pos_embedding = nn.Parameter(torch.randn(1, 1 + num_patches, embed_dim))
+		self.pos_embedding = nn.Parameter(torch.randn(1, num_patches+img_id_max_length, embed_dim))	# Positional encoding for the image ID embeddings
 
-	def img_to_patch(x, patch_size, flatten_channels=True):
+	def img_to_patch(self, x : torch.Tensor, patch_size, flatten_channels=True):
 		"""
 		Args:
 			x: Tensor representing the image of shape [B, C, H, W]
@@ -195,6 +202,10 @@ class DSI_ViT(nn.Module):
 		x = x.flatten(1, 2)  				# [B, H_P*W_P, C, P, P]		-> Flatten each patch into a vector
 		if flatten_channels:
 			x = x.flatten(2, 4)  			# [B, H_P*W_P, C*P*P]		-> Flatten all the patches into a single vector
+		# print("x.shape:", x.shape)
+		# print("B=", B, ", H_P=", H_P, ", W_P=", W_P, ", C=", C, ", P=", P)
+		# Convert the data type to float32
+		x = x.float()
 		return x
 	
 	def forward(self, imgs, ids):
@@ -211,21 +222,37 @@ class DSI_ViT(nn.Module):
 			- B = batch size (number of images in the batch)
 			- M = number of digits in the image ID until now (starts with the start token, might not end with the end token, and might have padding tokens after the end token)
 		'''
-		
+
 		# Preprocess input
+		# print("imgs.shape:", imgs.shape)
+		# print("ids.shape:", ids.shape)
 		imgs = self.img_to_patch(imgs, self.patch_size)
-		B, T, V = x.shape	# B is the batch size (number of images in the batch), T is the total number of patches of the image, and V is the size of the patches' vectors (flattened into value of each color channel, per width, per height)
+		B, T, V = imgs.shape	# B is the batch size (number of images in the batch), T is the total number of patches of the image, and V is the size of the patches' vectors (flattened into value of each color channel, per width, per height)
+		# print("B = " + str(B) + ", T = " + str(T) + ", V = " + str(V))
 		imgs = self.input_layer(imgs) # Convert the input images' patches into embeddings, i.e. vectors (one for each patch) of size "embed_dim"
 
 		# Convert the image IDs into embeddings
 		M = ids.shape[1]				# The number of digits in the image ID
 		N = self.img_id_max_length		# The maximum number of digits in the image ID
-		ids = self.id_embedding(ids)	# Convert the image ID digits into embeddings, i.e. vectors (one for each digit) of size "embed_dim"
+		# Convert ids into float32
+		# ids = ids.float()
+		print("ids.shape:", ids.shape)
+		print("N=", self.img_id_max_length)
+		# Convert each digit of the image ID into an embedding (i.e. a vector of size "embed_dim")
+		ids = self.id_embedding(ids)
+		# ids = ids.float()
+
+		print("imgs.shape (processed):", imgs.shape)
+		print("ids.shape (processed)):", ids.shape)
 
 		# Concatenate the image embeddings with the image ID embeddings
 		# - imgs size: [B, T, embed_dim]
 		# - ids size: [B, M, embed_dim]
+		# print("imgs.shape:", imgs.shape)
+		# print("ids.shape:", ids.shape)
 		x = torch.cat([imgs, ids], dim=1)
+
+		print("x.shape (1):", x.shape)
 
 		# Add CLS token (classification token) and positional encoding (to the end of the sequence)
 		# cls_token = self.cls_token.repeat(B, 1, 1)
@@ -243,6 +270,12 @@ class DSI_ViT(nn.Module):
 		if M > N:
 			x = x[:, : N]
 
+		# Add positional encoding at the end of each sequence
+		# x = x + self.pos_embedding[:, : T + 1 + M]	# Add positional encoding at the end of the sequence
+		x = x + self.pos_embedding[:, : T + N]	# Add positional encoding at the end of the sequence 
+
+		print("x.shape (2):", x.shape)
+
 		# Get a mask for the image ID embeddings
 		# - The mask is True for the padding tokens and False for the other tokens
 		# - The mask is used to avoid the Transformer to consider the padding tokens in the computation
@@ -252,9 +285,6 @@ class DSI_ViT(nn.Module):
 		# - The mask is True for the future tokens and False for the other tokens
 		# - The mask is used to avoid the Transformer to consider the future tokens in the computation
 		attention_mask = nn.Transformer.generate_square_subsequent_mask(N, device=self.device, dtype=torch.bool)
-
-		# Add positional encoding
-		x = x + self.pos_embedding[:, : T + 1]	# Add positional encoding at the end of the sequence
 
 		# Apply Transforrmer
 		x = self.dropout(x)
@@ -274,53 +304,71 @@ class DSI_ViT(nn.Module):
 		Returns the loss and accuracy of the model for the given batch
 		'''
 		# Get the input and target sequences from the batch
-		input, target = batch
-		print("input:", input)
-		print("target:", target)
+		input, target = batch	# input is the image tensor of shape [B, C, H, W], target is the image ID tensor of shape [B, N]
+								# - B is the batch size (number of images in the batch)
+								# - C is the number of channels (e.g. 3 channels for RGB)
+								# - H is the height of the image
+								# - W is the width of the image
+								# - N is the maximum number of digits in the image ID
+		B, C, H, W = input.shape
+		N = target.shape[1]
+		# print("input:", input)
+		# print("target:", target)
+		print("input.shape:", input.shape)
+		print("target.shape:", target.shape)
 		# Transpose the input and target sequences to match the Transformer's expected input format
-		input = input.transpose(0, 1)
-		target = target.transpose(0, 1)
-		# Initialize the output tensor
-		output = torch.zeros(target.size(0) - 1, input.size(1), self.num_classes, device=input.device)
-		# Start with the first token (start token)
-		target_in = target[:1, :]
+		# input = input.transpose(0, 1)
+		# target = target.transpose(0, 1)
+		# Initialize the output tensor (i.e. the final image ID prediction), which should have a shape of [B, N, num_classes], i.e. outputs all the classes/digits for each position/digit in the image ID
+		output = torch.zeros((B, N-1, self.num_classes), device=self.device)
+		print("output.shape:", output.shape)
+		# Start with the first token (start token) for all the sequences in the batch (shape: [B, 1])
+		target_in = target[:, 0].unsqueeze(1)	# The target_in is the input sequence for the model, i.e. the sequence of tokens that the model should predict
+		print("target_in.shape:", target_in.shape)
 		# Iterate over the target sequence to generate the output sequence
-		for i in range(1, target.size(0)):
+		for i in range(1, N):
 			# Store the next token
 			next_token = None
 			# Check if the autoregressive approach should be used
-			if not use_autoregression:
+			if use_autoregression:
+				# Generate the output using the input and the target sequences, thus relying only on the model's image ID digits predictions (autoregressive approach)
+				print("input.shape (i=", i, "):", input.shape)
+				print("target_in.shape (i=", i, "):", target_in.shape)
+				output_till_now = self(input, target_in)
+				# Get the prediction for the last token
+				last_token_output = output_till_now[-1, :, :].unsqueeze(0)
+				print("last_token_output.shape:", last_token_output.shape)
+				# Append the last token prediction to the output tensor
+				output[i - 1] = last_token_output.squeeze(0)
+				# Use the last generated best token as the next token of the target_in sequence
+				next_token = torch.argmax(last_token_output, dim=-1)
+			else:
+				# Get the target sequence up until the current position "i" (for all batches, shape: [B, i])
+				current_target = target[:, :i]
+				print("input.shape (i=", i, "):", input.shape)
+				print("current_target.shape (i=", i, "):", current_target.shape)
 				# Get the ground truth output starting from the input and the actual target sequence (teacher forcing approach)
-				ground_truth_output = self(input, target[:i, :])
+				ground_truth_output = self(input, current_target)
 				# Get the ground truth token for the current position "i" in the target sequence
 				ground_truth_token = ground_truth_output[i-1:i, :, :]
 				# Append the ground truth token to the output tensor
 				output[i - 1] = ground_truth_token.squeeze(0)
 				# Use the ground truth token as the next token
 				next_token = torch.argmax(ground_truth_token, dim=-1)
-			else:
-				# Generate the output using the input and the target sequences (autoregressive approach)
-				output_till_now = self(input, target_in)
-				# Get the prediction for the last token
-				last_token_output = output_till_now[-1, :, :].unsqueeze(0)
-				# Append the last token prediction to the output tensor
-				output[i - 1] = last_token_output.squeeze(0)
-				# Use the last generated best token as the next token of the target_in sequence
-				next_token = torch.argmax(last_token_output, dim=-1)
 			# Append the next token to the target_in sequence
 			target_in = torch.cat((target_in, next_token), dim=0)
-		# Get the target output (excluding the first token, i.e. the start token)
+		# Get the target output, i.e. the complete image ID (excluding the first token, i.e. the start token)
 		target_out = target[1:, :]
 		# Ensure the target_out tensor is contiguous in memory (to efficiently compute the loss)
 		target_out = target_out.contiguous()
 		# Compute the loss
-		reshaped_output = output.reshape(-1, self.target_tokens)
+		reshaped_output = output.reshape(-1, self.num_classes)
 		reshaped_target_out = target_out.reshape(-1)
 		loss = functional.cross_entropy(reshaped_output, reshaped_target_out)
-		# Get the best token prediction (to compute the accuracy)
+		# Get the best token prediction (to compute the accuracy) of the last token of the target sequence (i.e. the generated image ID token/digit)
 		predictions = torch.argmax(output, dim=-1)
 		# Compute accuracy with masking for padding
-		non_padding_mask = (target_out != self.doc_id_padding_token)
+		non_padding_mask = (target_out != self.img_id_padding_token)
 		num_correct = ((predictions == target_out) & non_padding_mask).sum().item()
 		num_total = non_padding_mask.sum().item()
 		accuracy_value = num_correct / num_total if num_total > 0 else 0.0
@@ -331,33 +379,33 @@ class DSI_ViT(nn.Module):
 
 	# Pytorch lightning function to compute the forward pass of the model
 	#   For more details: https://pytorch.org/docs/stable/generated/torch.nn.Transformer.html#torch.nn.Transformer.forward
-	def delete_forward_old(self, input, target):
+	# def delete_forward_old(self, input, target):
 
-		# Get the length of the input and target sequences
-		input_length = input.size(0)
-		target_length = target.size(0)
+	# 	# Get the length of the input and target sequences
+	# 	input_length = input.size(0)
+	# 	target_length = target.size(0)
 
-		# Create the masks for the input and target sequences
-		input_mask = torch.zeros((input_length, input_length), device=self.device).type(torch.bool)
-		target_mask = nn.Transformer.generate_square_subsequent_mask(target_length, device=self.device, dtype=torch.bool)
+	# 	# Create the masks for the input and target sequences
+	# 	input_mask = torch.zeros((input_length, input_length), device=self.device).type(torch.bool)
+	# 	target_mask = nn.Transformer.generate_square_subsequent_mask(target_length, device=self.device, dtype=torch.bool)
 
-		# Create the padding masks for the input and target sequences
-		input_padding_mask = (input == 0).transpose(0, 1).type(torch.bool)
-		target_padding_mask = (target == self.doc_id_padding_token).transpose(0, 1).type(torch.bool)
+	# 	# Create the padding masks for the input and target sequences
+	# 	input_padding_mask = (input == 0).transpose(0, 1).type(torch.bool)
+	# 	target_padding_mask = (target == self.doc_id_padding_token).transpose(0, 1).type(torch.bool)
 
-		# Get the embeddings for the input and target sequences
-		input = self.get_input_embedding(input)
-		target = self.get_target_embedding(target)
+	# 	# Get the embeddings for the input and target sequences
+	# 	input = self.get_input_embedding(input)
+	# 	target = self.get_target_embedding(target)
 
-		# Apply the positional encoding to the input and target sequences
-		input = self.positional_encoder(input).to(self.device)
-		target = self.positional_encoder(target).to(self.device)
+	# 	# Apply the positional encoding to the input and target sequences
+	# 	input = self.positional_encoder(input).to(self.device)
+	# 	target = self.positional_encoder(target).to(self.device)
 
-		# Compute the output of the transformer model
-		output = self.model(input, target, input_mask, target_mask, None, input_padding_mask, target_padding_mask, input_padding_mask)
+	# 	# Compute the output of the transformer model
+	# 	output = self.model(input, target, input_mask, target_mask, None, input_padding_mask, target_padding_mask, input_padding_mask)
 
-		# Return the final output of the model 
-		return self.output_layer(output)
+	# 	# Return the final output of the model 
+	# 	return self.output_layer(output)
 
 
 class AttentionBlock(nn.Module):

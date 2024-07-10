@@ -55,6 +55,10 @@ def train_transformer(transformer_indexing_dataset, transformer_retrieval_datase
 		num_workers=DATALOADERS_NUM_WORKERS
 	)
 
+	# print("indexing_train_dataset[0].shape:", indexing_train_dataset[0].shape)
+	# print("indexing_train_dataset[0][0].shape:", indexing_train_dataset[0][0].shape)
+	# print("indexing_train_dataset[0][1].shape:", indexing_train_dataset[0][1].shape)
+
 	# Split the retrieval dataset into training and evaluation sets for the retrieval task
 	retrieval_train_size = int(retrieval_split_ratios[0] * len(transformer_retrieval_dataset))
 	retrieval_validation_size = int(retrieval_split_ratios[1] * len(transformer_retrieval_dataset))

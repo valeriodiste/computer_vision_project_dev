@@ -169,8 +169,7 @@ class DSI_ViT(pl.LightningModule):
 		input = input.transpose(0, 1)
 		target = target.transpose(0, 1)
 		# Initialize the output tensor
-		output = torch.zeros(target.size(0) - 1, input.size(1),
-							self.target_tokens, device=input.device)
+		output = torch.zeros(target.size(0) - 1, input.size(1), self.target_tokens, device=input.device)
 		# Start with the first token (start token)
 		target_in = target[:1, :]
 		# Flag indicating if the model should use teacher forcing for all of the next tokens

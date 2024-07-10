@@ -39,7 +39,11 @@ class DSI_VisionTransformer(pl.LightningModule):
 		super().__init__()
 		self.save_hyperparameters(model_kwargs)
 		self.model = DSI_ViT(**model_kwargs)
-		# self.example_input_array = next(iter(train_loader))[0]
+		# Store the outputs for training and validation steps
+		self.training_losses = []
+		self.validation_losses = []
+		self.training_accuracies = []
+		self.validation_accuracies = []
 
 	def forward(self, imgs, ids):
 		# Expects as input a tensor of shape [B, C, H, W] where:
@@ -54,26 +58,107 @@ class DSI_VisionTransformer(pl.LightningModule):
 		lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
 		return [optimizer], [lr_scheduler]
 
-	def _calculate_loss(self, batch, mode="train"):
-		imgs, labels = batch
-		preds = self.model(imgs)
-		loss = functional.cross_entropy(preds, labels)
-		acc = (preds.argmax(dim=-1) == labels).float().mean()
+	# def _calculate_loss(self, batch, mode="train"):
+	# 	imgs, labels = batch
+	# 	preds = self.model(imgs)
+	# 	loss = functional.cross_entropy(preds, labels)
+	# 	acc = (preds.argmax(dim=-1) == labels).float().mean()
 
-		self.log("%s_loss" % mode, loss)
-		self.log("%s_acc" % mode, acc)
+	# 	self.log("%s_loss" % mode, loss)
+	# 	self.log("%s_acc" % mode, acc)
 		
-		return loss
+	# 	return loss
+
+	# def training_step(self, batch, batch_idx):
+	# 	loss = self._calculate_loss(batch, mode="train")
+	# 	return loss
+
+	# def validation_step(self, batch, batch_idx):
+	# 	self._calculate_loss(batch, mode="val")
+
+	# def test_step(self, batch, batch_idx):
+	# 	self._calculate_loss(batch, mode="test")
+
+	# Auxiliary function for both the training and valdiation steps (to compute the loss and accuracy)
+	def _step(self, batch, use_autoregression=False):
+		'''
+		Generate the output document ID using an autoregressive approach (i.e. generate the sequence token by token using the model's own predictions) or using the teacher forcing approach (i.e. use the actual target sequence as input to the model)
+
+		Returns the loss and accuracy of the model for the given batch
+		'''
+		# Get the input and target sequences from the batch
+		input, target = batch
+		# Transpose the input and target sequences to match the Transformer's expected input format
+		input = input.transpose(0, 1)
+		target = target.transpose(0, 1)
+		# Initialize the output tensor
+		output = torch.zeros(target.size(0) - 1, input.size(1), self.target_tokens, device=input.device)
+		# Start with the first token (start token)
+		target_in = target[:1, :]
+		# Iterate over the target sequence to generate the output sequence
+		for i in range(1, target.size(0)):
+			# Store the next token
+			next_token = None
+			# Check if the autoregressive approach should be used
+			if not use_autoregression:
+				# Get the ground truth output starting from the input and the actual target sequence (teacher forcing approach)
+				ground_truth_output = self(input, target[:i, :])
+				# Get the ground truth token for the current position "i" in the target sequence
+				ground_truth_token = ground_truth_output[i-1:i, :, :]
+				# Append the ground truth token to the output tensor
+				output[i - 1] = ground_truth_token.squeeze(0)
+				# Use the ground truth token as the next token
+				next_token = torch.argmax(ground_truth_token, dim=-1)
+			else:
+				# Generate the output using the input and the target sequences (autoregressive approach)
+				output_till_now = self(input, target_in)
+				# Get the prediction for the last token
+				last_token_output = output_till_now[-1, :, :].unsqueeze(0)
+				# Append the last token prediction to the output tensor
+				output[i - 1] = last_token_output.squeeze(0)
+				# Use the last generated best token as the next token of the target_in sequence
+				next_token = torch.argmax(last_token_output, dim=-1)
+			# Append the next token to the target_in sequence
+			target_in = torch.cat((target_in, next_token), dim=0)
+		# Get the target output (excluding the first token, i.e. the start token)
+		target_out = target[1:, :]
+		# Ensure the target_out tensor is contiguous in memory (to efficiently compute the loss)
+		target_out = target_out.contiguous()
+		# Compute the loss
+		reshaped_output = output.reshape(-1, self.target_tokens)
+		reshaped_target_out = target_out.reshape(-1)
+		loss = self.cross_entropy_loss(reshaped_output, reshaped_target_out)
+		# Get the best token prediction (to compute the accuracy)
+		predictions = torch.argmax(output, dim=-1)
+		# Compute accuracy with masking for padding
+		non_padding_mask = (target_out != self.doc_id_padding_token)
+		num_correct = ((predictions == target_out) & non_padding_mask).sum().item()
+		num_total = non_padding_mask.sum().item()
+		accuracy_value = num_correct / num_total if num_total > 0 else 0.0
+		accuracy = torch.tensor(accuracy_value)
+		# Return loss and accuracy (tensors)
+		return loss, accuracy
 
 	def training_step(self, batch, batch_idx):
-		loss = self._calculate_loss(batch, mode="train")
+		# Training step for the model (compute the loss and accuracy)
+		loss, accuracy = self._step(batch)
+		# Append the loss to the training losses list (for logging)
+		self.training_accuracies.append(accuracy)
+		# Append the accuracy to the training accuracies list (for logging)
+		self.training_losses.append(loss)
+		# Return the loss
 		return loss
 
 	def validation_step(self, batch, batch_idx):
-		self._calculate_loss(batch, mode="val")
+		# Validation step for the model (compute the loss and accuracy)
+		loss, accuracy = self._step(batch, True)
+		# Append the loss to the validation losses list (for logging)
+		self.validation_losses.append(loss)
+		# Append the accuracy to the validation accuracies list (for logging)
+		self.validation_accuracies.append(accuracy)
+		# Return the loss
+		return loss
 
-	def test_step(self, batch, batch_idx):
-		self._calculate_loss(batch, mode="test")
 
 # nn.Module Code from the tutorial ==========================================================================================================
 
@@ -120,7 +205,6 @@ class DSI_ViT(nn.Module):
 		self.patch_size = patch_size
 
 		self.embed_dim = embed_dim
-
 		self.img_id_max_length = img_id_max_length
 		self.img_id_start_token = img_id_start_token
 		self.img_id_end_token = img_id_end_token

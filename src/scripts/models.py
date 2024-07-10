@@ -37,7 +37,7 @@ class DSI_VisionTransformer(pl.LightningModule):
 
 	def __init__(self, **model_kwargs):
 		super().__init__()
-		self.save_hyperparameters()
+		self.save_hyperparameters(model_kwargs)
 		self.model = DSI_ViT(**model_kwargs)
 		# self.example_input_array = next(iter(train_loader))[0]
 
@@ -87,6 +87,7 @@ class DSI_ViT(nn.Module):
 		num_channels,
 		num_heads,
 		num_layers,
+		batch_size,
 		num_classes,
 		patch_size,
 		num_patches,
@@ -106,6 +107,7 @@ class DSI_ViT(nn.Module):
 			num_channels: Number of channels of the input (e.g. 3 for RGB, 1 for grayscale, ecc...)
 			num_heads: Number of heads to use in the Multi-Head Attention block
 			num_layers: Number of layers to use in the Transformer
+			batch_size: Number of samples in a batch
 			num_classes: Number of classes to predict 
 				(in my case, since I give an image with, concatenated, the N digits of the image ID, the num_classes is the number of possible digits of the image IDs, hence 10+3, including the special tokens)
 			patch_size: Number of pixels that the patches have per dimension

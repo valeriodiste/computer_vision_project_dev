@@ -80,6 +80,7 @@ class DSI_VisionTransformer(pl.LightningModule):
 	# 	self._calculate_loss(batch, mode="test")
 
 	def training_step(self, batch, batch_idx):
+		print("batch:", batch)
 		# Training step for the model (compute the loss and accuracy)
 		loss, accuracy = self.model.step(batch)
 		# Append the loss to the training losses list (for logging)
@@ -90,6 +91,7 @@ class DSI_VisionTransformer(pl.LightningModule):
 		return loss
 
 	def validation_step(self, batch, batch_idx):
+		print("batch:", batch)
 		# Validation step for the model (compute the loss and accuracy)
 		loss, accuracy = self.model.step(batch, True)
 		# Append the loss to the validation losses list (for logging)
@@ -273,6 +275,8 @@ class DSI_ViT(nn.Module):
 		'''
 		# Get the input and target sequences from the batch
 		input, target = batch
+		print("input:", input)
+		print("target:", target)
 		# Transpose the input and target sequences to match the Transformer's expected input format
 		input = input.transpose(0, 1)
 		target = target.transpose(0, 1)

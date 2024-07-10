@@ -190,15 +190,13 @@ class TransformerImageRetrievalDataset(Dataset):
 			encoded_images = []
 			# For each image in the images similarity dictionary
 			similar_image_ids = self.similar_images.keys()
-			if type(list(similar_image_ids)[0]) == str:
-				similar_image_ids = list(map(int, similar_image_ids))	# Remap keys ot integers in case they are strings (e.g. loaded from a JSON file)
 			for similar_image_id in tqdm(similar_image_ids, desc='Building TransformerImageRetrievalDataset'):
 				# get all the similar images for the current image
 				relevant_image_ids = self.similar_images[similar_image_id]	# List of relevant image IDs (in the database)
 				# For each relevant image ID (in the database)
 				for image_id in relevant_image_ids:
 					# Get the image object from the images dictionary
-					image_obj = self.images[similar_image_id]
+					image_obj = self.images[int(similar_image_id)]
 					# Load the similar image from the image object
 					similar_image = get_image_from_b64_string(image_obj["image_data"]) # Image is returned as a cv2 image object
 					# Encode the image into a torch tensor of shape [C, H, W], where C is the number of channels (e.g. 3 for RGB), H is the height, and W is the width

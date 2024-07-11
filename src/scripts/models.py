@@ -108,6 +108,119 @@ class DSI_VisionTransformer(pl.LightningModule):
 		self.validation_accuracies.append(accuracy)
 		# Return the loss
 		return loss
+	
+	# PyTorch Lightning function (optional) called at the very end of each training epoch
+	def on_train_epoch_end(self):
+		# If the validation losses list is NOT empty, return (to avoid logging the training losses twice)
+		if len(self.validation_losses) > 0:
+			return
+		epoch_num = self.current_epoch
+		print()
+		# Log the average training loss for this epoch
+		if not len(self.training_losses) == 0:
+			avg_epoch_training_loss = torch.stack(self.training_losses).mean()
+			self.log("avg_epoch_training_loss", avg_epoch_training_loss)
+			print(f"Average training loss for epoch {epoch_num}: ", avg_epoch_training_loss.item())
+			self.training_losses.clear()
+		# Log the average training accuracy for this epoch
+		if not len(self.training_accuracies) == 0:
+			avg_epoch_training_accuracy = torch.stack(self.training_accuracies).mean()
+			self.log("avg_epoch_training_accuracy", avg_epoch_training_accuracy)
+			print(f"Average training accuracy for epoch {epoch_num}: ", avg_epoch_training_accuracy.item())
+			self.training_accuracies.clear()
+
+	# Pytorch lightning function (optional) called at the very end of each validation epoch
+	def on_validation_epoch_end(self):
+		epoch_num = self.current_epoch
+		print()
+		# Log the average training loss for this epoch
+		if not len(self.training_losses) == 0:
+			avg_epoch_training_loss = torch.stack(self.training_losses).mean()
+			self.log("avg_epoch_training_loss", avg_epoch_training_loss)
+			print(f"Average training loss for epoch {epoch_num}: ", avg_epoch_training_loss.item())
+			self.training_losses.clear()
+		# Log the average validation loss for this epoch
+		if not len(self.validation_losses) == 0:
+			avg_epic_validation_loss = torch.stack(self.validation_losses).mean()
+			self.log("avg_epoch_val_loss", avg_epic_validation_loss)
+			print(f"Average validation loss for epoch {epoch_num}: ", avg_epic_validation_loss.item())
+			self.validation_losses.clear()
+		# Log the average training accuracy for this epoch
+		if not len(self.training_accuracies) == 0:
+			avg_epoch_training_accuracy = torch.stack(self.training_accuracies).mean()
+			self.log("avg_epoch_training_accuracy",avg_epoch_training_accuracy)
+			print(f"Average training accuracy for epoch {epoch_num}: ",avg_epoch_training_accuracy.item())
+			self.training_accuracies.clear()
+		# Log the average validation accuracy for this epoch
+		if not len(self.validation_accuracies) == 0:
+			avg_epoch_validation_accuracy = torch.stack(self.validation_accuracies).mean()
+			self.log("avg_epoch_val_accuracy", avg_epoch_validation_accuracy)
+			print(f"Average validation accuracy for epoch {epoch_num}: ",avg_epoch_validation_accuracy.item())
+			self.validation_accuracies.clear()
+
+	def generate_top_k_image_ids(self, encoded_image: torch.Tensor, k: int, retrieval_dataset: datasets.TransformerImageRetrievalDataset):
+		''' 
+		Generate the top K image IDs for the given image (as a tensor of shape [C, H, W])
+		'''
+		# Initialize random seed for reproducibility
+		torch.manual_seed(RANDOM_SEED)
+		# Special tokens of the image IDs encoding
+		img_id_start_token = retrieval_dataset.img_id_start_token
+		img_id_end_token = retrieval_dataset.img_id_end_token
+		img_id_padding_token = retrieval_dataset.img_id_padding_token
+		image_id_skip_token = -1
+		# Max length of the image IDs
+		img_id_max_length = retrieval_dataset.img_id_max_len	# The maximum number of digits in the image ID plus 2 (for the start and end tokens)
+		# Initialize the output sequence (sequence of image ID tokens, i.e. digits) as a tensor containing only the start token
+		output_sequences = torch.tensor([[img_id_start_token]], dtype=torch.long, device=encoded_image.device)
+		# Iterate over the maximum length of the sequences (i.e. the number of tokens to generate for each image IDs)
+		for i in range(img_id_max_length):
+			# Source sequence (image encoding) for the transformer model
+			source_sequence = encoded_image.unsqueeze(1).t().repeat(output_sequences.size(0), 1).t()
+			# Get the next tokens logits (no softmax used for the model's output) from the transformer model (list of N floats, with N being the number of possible target tokens, hence the 10 possible digits of document IDs)
+			outputs = self(source_sequence, output_sequences.t())
+			# Get the next token to append to each sequence (i.e. the token with the highest probability for each of the k sequences)
+			sorted_logits, sorted_indices = torch.sort(outputs[-1], descending=True, dim=-1)
+			# Transform the logits into probabilities using the softmax function
+			probabilities = functional.softmax(sorted_logits, dim=-1)
+			# Replace tokens with a probability lower than a threshold with a special token (image_id_skip_token), and keep only the top n tokens
+			max_tokens_to_keep = max(1, (4 - i*2) + int(math.log10(k)))
+			probability_threshold = 1.0 / self.target_tokens
+			# Check if all the tokens have a probability lower than the threshold
+			if torch.all(probabilities < probability_threshold):
+				# If all the filtered indices are the image_id_skip_token, keep only the top n tokens
+				filtered_indices = sorted_indices[:, 0: max_tokens_to_keep]
+			else:
+				# Filter out the tokens with a probability lower than the threshold and keep only the top n tokens
+				filtered_indices = sorted_indices.masked_fill(probabilities < probability_threshold, image_id_skip_token)[:, 0: max_tokens_to_keep]
+			# Repeat the target sequences to match the number of sequences in the sorted indices tensor
+			output_sequences = output_sequences.repeat(1, filtered_indices.size(1)).view(-1, output_sequences.size(1))
+			# Reshape the sorted indices tensor to match the shape of the target sequences tensor
+			filtered_indices = filtered_indices.flatten().unsqueeze(0).t()
+			# Concatenate the target sequences with the sorted indices to create the new target sequences
+			output_sequences = torch.cat((output_sequences, filtered_indices), dim=1)
+			# Remove all sequences that have the image_id_skip_token as the last token
+			output_sequences = output_sequences[output_sequences[:, -1] != image_id_skip_token]
+		top_k_image_ids_tokens = output_sequences.tolist()[0: k]
+		# Convert the top k sequences of image IDs' tokens to a list of k image IDs
+		top_k_image_ids = []
+		for i in range(min(k, len(top_k_image_ids_tokens))):
+			image_id_tokens = top_k_image_ids_tokens[i]
+			# image_id = retrieval_dataset.decode_doc_id(image_id_tokens)
+			image_id = image_id_tokens
+			top_k_image_ids.append(image_id)
+		# Remove duplicate image IDs
+		top_k_image_ids = list(set(top_k_image_ids))
+		# Refill the list to have k image IDs
+		# use_debug_form_for_refilled_doc_ids = False
+		# image_ids_to_add = retrieval_dataset.get_similar_doc_ids(k - len(top_k_image_ids), target_doc_ids=top_k_image_ids)
+		# if use_debug_form_for_refilled_doc_ids:
+		# 	top_k_image_ids = top_k_image_ids + ["R=" + doc_id for doc_id in image_ids_to_add]
+		# else:
+		# 	top_k_image_ids = top_k_image_ids + image_ids_to_add
+		# Return the top k image IDs
+		return top_k_image_ids
+
 
 
 # nn.Module Code from the tutorial ==========================================================================================================

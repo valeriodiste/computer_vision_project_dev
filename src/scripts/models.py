@@ -31,6 +31,7 @@ np.random.seed(RANDOM_SEED)
 torch.manual_seed(RANDOM_SEED)
 random.seed(RANDOM_SEED)
 
+# Whether to print debug information or not (suggest to set to False since a lot of information is printed)
 PRINT_DEBUG = False
 
 # Override the "print" function to print only when necessary

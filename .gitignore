@@ -6,3 +6,4 @@ src/data_old
 wandb
 dl-dsi-project
 lightning_logs
+src/demo

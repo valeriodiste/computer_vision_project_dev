@@ -26,6 +26,9 @@ IMG_ID_START_TOKEN = 10
 IMG_ID_PADDING_TOKEN = 11
 IMG_ID_END_TOKEN = 12
 
+# Whether to pad image ids with zeroes at the start (thus consider ids like "1" as "00...01") or at the end (after the start and end tokens, thus without padding IDs "internallly")
+PAD_IDS_AT_START = False
+
 class TransformerIndexingDataset(Dataset):
 
 	# Initialize the dataset of tuples (encoded_imgs, encoded_img_id) for the indexing phase (Transformer models learns to map images to image IDs)
@@ -61,6 +64,7 @@ class TransformerIndexingDataset(Dataset):
 		self.img_id_end_token = IMG_ID_END_TOKEN
 		self.img_id_padding_token = IMG_ID_PADDING_TOKEN
 		# Set the maximum image ID length
+		self.img_id_max_len = -1
 		if img_id_max_length < 0:
 			# Compute the maximum image ID length (and add 2: 1 for the start special token and 1 for the end special token)
 			self.img_id_max_len = max(len(str(img_id)) for img_id in range(len(images))) + 2
@@ -93,13 +97,15 @@ class TransformerIndexingDataset(Dataset):
 				image = get_image_from_b64_string(image_obj["image_data"]) # Image is returned as a cv2 image object
 				# Encode the image into a torch tensor of shape [C, H, W], where C is the number of channels (e.g. 3 for RGB), H is the height, and W is the width
 				encoded_img = torch.tensor(image).permute(2, 0, 1)
+				# Get the final string representing the image ID (padded at start or not)
+				image_id_string = str(image_id).zfill(self.img_id_max_len - 2) if PAD_IDS_AT_START else str(image_id)
 				# Encode the image ID
-				img_id_padding_length = self.img_id_max_len - len(str(image_id))	# Padding length: N - M  (with N max digit for each image ID, and M number of digits of the image ID)
+				img_id_padding_length = self.img_id_max_len - len(image_id_string) - 2	# Padding length: N - M  (with N max digit for each image ID, and M number of digits of the image ID)
 				encoded_img_id = torch.tensor(
 					# Start of sequence token
 					[self.img_id_start_token] +
 					# Encoded image ID (list of integers, each representing a digit of the M total digits of the ID)
-					list(map(int, str(image_id))) +
+					list(map(int, image_id_string)) +
 					# End of sequence token
 					[self.img_id_end_token] +
 					# Padding tokens (if needed)
@@ -201,13 +207,15 @@ class TransformerImageRetrievalDataset(Dataset):
 					similar_image = get_image_from_b64_string(image_obj["image_data"]) # Image is returned as a cv2 image object
 					# Encode the image into a torch tensor of shape [C, H, W], where C is the number of channels (e.g. 3 for RGB), H is the height, and W is the width
 					encoded_img = torch.tensor(similar_image).permute(2, 0, 1)
+					# Get the final string representing the image ID (padded at start or not)
+					image_id_string = str(image_id).zfill(self.img_id_max_len - 2) if PAD_IDS_AT_START else str(image_id)
 					# Encode the image ID of the relevant image (in the database)
-					img_id_padding_length = self.img_id_max_len - len(str(image_id))	# Padding length: N - M  (with N max digit for each image ID, and M number of digits of the image ID)
+					img_id_padding_length = self.img_id_max_len - len(image_id_string) - 2	# Padding length: N - M  (with N max digit for each image ID, and M number of digits of the image ID)
 					encoded_img_id = torch.tensor(
 						# Start of sequence token
 						[self.img_id_start_token] +
 						# Encoded image ID (list of integers, each representing a digit of the M total digits of the ID)
-						list(map(int, str(image_id))) +
+						list(map(int, image_id_string)) +
 						# End of sequence token
 						[self.img_id_end_token] +
 						# Padding tokens (if needed)

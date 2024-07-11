@@ -214,7 +214,7 @@ class DSI_ViT(pl.LightningModule):
 		target_out = target_out.contiguous()
 		# Compute the loss
 		reshaped_output = output.reshape(-1, self.target_tokens)
-		reshaped_target_out = target_out.reshape(-1)
+		reshaped_target_out = target_out.reshape(-1)	# Reshape with a single dimension of -1 is equivalent to flattening the tensor
 		loss = self.cross_entropy_loss(reshaped_output, reshaped_target_out)
 		# Get the best token prediction (to compute the accuracy)
 		predictions = torch.argmax(output, dim=-1)

@@ -31,6 +31,13 @@ np.random.seed(RANDOM_SEED)
 torch.manual_seed(RANDOM_SEED)
 random.seed(RANDOM_SEED)
 
+PRINT_DEBUG = False
+
+# Override the "print" function to print only when necessary
+def print(*args, **kwargs):
+	if PRINT_DEBUG:
+		__builtins__.print(*args, **kwargs)
+
 # LighningModule Code from the tutorial ==========================================================================================================
 
 class DSI_VisionTransformer(pl.LightningModule):
@@ -177,10 +184,11 @@ class DSI_ViT(nn.Module):
 			nn.Linear(embed_dim, num_classes)
 		)
 		self.dropout = nn.Dropout(dropout)
+		# self.cross_entropy_loss = nn.CrossEntropyLoss(ignore_index=self.img_id_padding_token)
 
 		# Parameters/Embeddings
 		# self.cls_token = nn.Parameter(torch.randn(1, 1, embed_dim))
-		self.pos_embedding = nn.Parameter(torch.randn(1, num_patches+img_id_max_length, embed_dim))	# Positional encoding for the image ID embeddings
+		self.pos_embedding = nn.Parameter(torch.randn(1, num_patches+img_id_max_length+2, embed_dim))	# Positional encoding for the image ID embeddings
 
 	def img_to_patch(self, x : torch.Tensor, patch_size, flatten_channels=True):
 		"""
@@ -233,7 +241,7 @@ class DSI_ViT(nn.Module):
 
 		# Convert the image IDs into embeddings
 		M = ids.shape[1]				# The number of digits in the current (possibly incomplete, hence M<N) image ID given as input to the model
-		N = self.img_id_max_length		# The maximum number of digits in the image ID
+		N = self.img_id_max_length + 2		# The maximum number of digits in the image ID (plus the start and end tokens)
 		# Convert ids into float32
 		# ids = ids.float()
 		print("ids.shape:", ids.shape)
@@ -324,7 +332,8 @@ class DSI_ViT(nn.Module):
 								# - W is the width of the image
 								# - N is the maximum number of digits in the image ID
 		B, C, H, W = input.shape
-		N = self.img_id_max_length
+		N = self.img_id_max_length + 2	# The maximum number of digits in the image ID (plus the start and end tokens)
+		print()
 		print("B=", B, ", C=", C, ", H=", H, ", W=", W, ", N=", N, sep="")
 		print("input.shape:", input.shape)
 		print("target.shape:", target.shape)
@@ -343,8 +352,9 @@ class DSI_ViT(nn.Module):
 			next_token = None
 			# Check if the autoregressive approach should be used
 			if use_autoregression:
-				print("input.shape (i=", i, "):", input.shape,sep="")
-				print("generated_target.shape (i=", i, "):", generated_target.shape,sep="")
+				print()
+				print("input.shape (i=", i, "): ", input.shape, sep="")
+				print("generated_target.shape (i=", i, "): ", generated_target.shape, sep="")
 				# Compute the next token's logits using the input and the target sequences, thus relying only on the model's image ID digits predictions ("auto-regressive" approach, "AR")
 				classes_predictions_ar = self(input, generated_target)		# Shape: [B, num_classes]
 				print("new_output.shape:", classes_predictions_ar.shape)
@@ -356,7 +366,7 @@ class DSI_ViT(nn.Module):
 				# next_token = torch.argmax(last_token_output, dim=-1)
 				next_token = torch.argmax(classes_predictions_ar, dim=-1).unsqueeze(1)	# Shape: [B, 1]
 				# Append the next token to the generated_target sequence
-				generated_target = torch.cat((generated_target, next_token), dim=0)
+				generated_target = torch.cat((generated_target, next_token), dim=1)
 			else:
 				# Get the ground truth target sequence up until the current position "i" (for all batches, shape: [B, i])
 				current_target = target[:, :i]	# Shape: [B, i]
@@ -374,20 +384,27 @@ class DSI_ViT(nn.Module):
 		# Get the target output, i.e. the complete image ID (excluding the first token, i.e. the start token)
 		print("target.shape:", target.shape)
 		# target_out = target[1:, :]
-		target_out = target[:, 1:]	# Shape: [B, N-1]
-		print("target_out.shape:", target_out.shape)
+		target_output_ids = target[:, 1:]	# Shape: [B, N-1]
 		# Ensure the target_out tensor is contiguous in memory (to efficiently compute the loss)
-		target_out = target_out.contiguous()
-		# Compute the loss as the cross-entropy loss between the output and the target_out tensors, i.e. the predicted image ID and the actual image ID
-		# NOTE: -1 in the "reshape" is a placeholder that makes the final data fit with the other dimensions/shape given
-		reshaped_output = output.reshape(-1, self.num_classes)	# Reshape the output tensor to have a shape of [B*N, num_classes]
-		reshaped_target_out = target_out.reshape(-1)		# Reshape the target_out tensor to have a shape of [B*N]
-		loss = functional.cross_entropy(reshaped_output, reshaped_target_out)
+		target_output_ids = target_output_ids.contiguous()
+		# Get the predicted output (i.e. the predicted image ID) by taking the token with the highest logit for each position in the image ID
+		predicted_output_ids = output.argmax(dim=-1)	# Shape: [B, N-1]
+		# Compute the loss as the cross-entropy loss between the output and the target_out tensors, i.e. the full predicted image ID and the actual image ID (IDs are encoded, hence are tensors of N digits)
+		print("output.shape:", output.shape)
+		print("target_output_ids.shape:", target_output_ids.shape)
+		print("predicted_output_ids.shape:", predicted_output_ids.shape)
+		print("target_output_ids:", target_output_ids)
+		print("predicted_output_ids:", predicted_output_ids)
+		reshaped_output = output.view(-1, self.num_classes)		# Shape: [B*(N-1), num_classes]
+		reshaped_target = target_output_ids.view(-1)			# Shape: [B*(N-1)]
+		print("reshaped_output.shape:", reshaped_output.shape)
+		print("reshaped_target.shape:", reshaped_target.shape)
+		loss = functional.cross_entropy(reshaped_output, reshaped_target, ignore_index=self.img_id_padding_token)		# Compute the cross-entropy loss
 		# Get the best prediction (to compute the accuracy) for the next token of the target sequence (i.e. the generated image ID token/digit)
 		predictions = torch.argmax(output, dim=-1)
 		# Compute accuracy with masking for padding
-		non_padding_mask = (target_out != self.img_id_padding_token)
-		num_correct = ((predictions == target_out) & non_padding_mask).sum().item()
+		non_padding_mask = (target_output_ids != self.img_id_padding_token)
+		num_correct = ((predictions == target_output_ids) & non_padding_mask).sum().item()
 		num_total = non_padding_mask.sum().item()
 		accuracy_value = num_correct / num_total if num_total > 0 else 0.0
 		accuracy = torch.tensor(accuracy_value)

@@ -66,7 +66,7 @@ class DSI_VisionTransformer(pl.LightningModule):
 
 	# 	self.log("%s_loss" % mode, loss)
 	# 	self.log("%s_acc" % mode, acc)
-		
+
 	# 	return loss
 
 	# def training_step(self, batch, batch_idx):
@@ -131,12 +131,12 @@ class DSI_ViT(nn.Module):
 
 		Args:
 			embed_dim: Dimensionality of the input feature vectors to the Transformer (i.e. the size of the embeddings)
-			hidden_dim: Dimensionality of the hidden layer in the feed-forward networks within the Transformer 
+			hidden_dim: Dimensionality of the hidden layer in the feed-forward networks within the Transformer
 			num_channels: Number of channels of the input (e.g. 3 for RGB, 1 for grayscale, ecc...)
 			num_heads: Number of heads to use in the Multi-Head Attention block
 			num_layers: Number of layers to use in the Transformer
 			batch_size: Number of samples in a batch
-			num_classes: Number of classes to predict 
+			num_classes: Number of classes to predict
 				(in my case, since I give an image with, concatenated, the N digits of the image ID, the num_classes is the number of possible digits of the image IDs, hence 10+3, including the special tokens)
 			patch_size: Number of pixels that the patches have per dimension
 			num_patches: Maximum number of patches an image can have
@@ -173,7 +173,7 @@ class DSI_ViT(nn.Module):
 			*(AttentionBlock(embed_dim, hidden_dim, num_heads, dropout=dropout) for _ in range(num_layers))
 		)
 		self.mlp_head = nn.Sequential(
-			nn.LayerNorm(embed_dim), 
+			nn.LayerNorm(embed_dim),
 			nn.Linear(embed_dim, num_classes)
 		)
 		self.dropout = nn.Dropout(dropout)
@@ -207,7 +207,7 @@ class DSI_ViT(nn.Module):
 		# Convert the data type to float32
 		x = x.float()
 		return x
-	
+
 	def forward(self, imgs, ids):
 		'''
 			Expects as input a tensor of B images and a tensor of B image IDs (with B size of the batch, i.e. number of <image, image ID> pairs in the batch)
@@ -237,8 +237,7 @@ class DSI_ViT(nn.Module):
 		# Convert ids into float32
 		# ids = ids.float()
 		print("ids.shape:", ids.shape)
-		print("M=", M)
-		print("N=", N)
+		print("M=", M, ", N=", N, sep="")
 		# Convert each digit of the image ID into an embedding (i.e. a vector of size "embed_dim")
 		ids = self.id_embedding(ids)	# Shape: [B, M, embed_dim]
 		# ids = ids.float()
@@ -273,7 +272,9 @@ class DSI_ViT(nn.Module):
 
 		# Add positional encoding at the end of each sequence
 		# x = x + self.pos_embedding[:, : T + 1 + M]	# Add positional encoding at the end of the sequence
-		x = x + self.pos_embedding[:, : T + N]	# Add positional encoding at the end of the sequence 
+		x = x + self.pos_embedding[:, : T + N]	# Add positional encoding at the end of the sequence
+
+		# NOTE: current shape of x is [B, T + N, embed_dim]
 
 		print("x.shape (2):", x.shape)
 
@@ -281,8 +282,9 @@ class DSI_ViT(nn.Module):
 		# - The mask is True for the padding tokens and False for the other tokens
 		# - The mask is used to avoid the Transformer to consider the padding tokens in the computation
 		# padding_mask = (ids == self.img_id_padding_token)
-		# padding_mask = (x == mask_token)	# Should be a 2D tensor of shape [B, N] (B is the batch size and N is the maximum number of digits in the image ID)
-		padding_mask = (ids[:, :, 0] == self.img_id_padding_token)	# Should be a 2D tensor of shape [B, N] (B is the batch size and N is the maximum number of digits in the image ID)
+		# padding_mask = (x == mask_token)	# Should be a 2D tensor of shape [B, T + N] (T is the total number of patches in the image and N is the maximum number of digits in the image ID)
+		padding_mask = torch.full((B, T + N), False, dtype=torch.bool, device=self.device)
+		padding_mask[:, T:] = True
 		print("padding_mask.shape:", padding_mask.shape)
 
 		# Get a mask for the attention mechanism (i.e. mask the future tokens) from the masking sequence
@@ -294,15 +296,21 @@ class DSI_ViT(nn.Module):
 		x = self.dropout(x)
 		x = x.transpose(0, 1)
 		transformer_input = (x, padding_mask, attention_mask)	# The first "attention block" layer of the transformer expects a tuple of three elements: the input tensor, the padding mask, and the attention mask
-		x = self.transformer(transformer_input)
+		ret_tuple = self.transformer(transformer_input)	# Tuple of three elements: the output tensor, the padding mask, and the attention mask
+		x = ret_tuple[0].transpose(0, 1)	# The output tensor is the first element of the tuple, hence we transpose it to have the shape [B, T + N, embed_dim]
+
+		print("x.shape (3):", x.shape)
 
 		# Perform classification prediction
-		cls = x[-1]		# The last element of the output is the CLS token, i.e. in this case the last token of the image ID (the predicted token digit given an image and the start digits of the token ID)
+		cls = x[:, -1, :]	# The last element of the output is the CLS token, i.e. in this case the last token of the image ID (the predicted token digit given an image and the start digits of the token ID)
+		print("cls.shape:", cls.shape)
 		out = self.mlp_head(cls) # The output is the result of the final MLP head (i.e. the classification layer), hence is a tensor of shape [B, num_classes]
-		return out
-	
+		print("out.shape:", out.shape)
+
+		return out	# Return the logits for the next image ID digit prediction, with N possible classes (10 digits + 3 special tokens)
+
 	# Auxiliary function for both the training and valdiation steps (to compute the loss and accuracy)
-	def step(self, batch, use_autoregression=False):
+	def step(self, batch : tuple[torch.Tensor, torch.Tensor], use_autoregression=False):
 		'''
 		Generate the output document ID using an autoregressive approach (i.e. generate the sequence token by token using the model's own predictions) or using the teacher forcing approach (i.e. use the actual target sequence as input to the model)
 
@@ -317,61 +325,65 @@ class DSI_ViT(nn.Module):
 								# - N is the maximum number of digits in the image ID
 		B, C, H, W = input.shape
 		N = self.img_id_max_length
-		print("B=", B, ", C=", C, ", H=", H, ", W=", W, ", N=", N)
-		# print("input:", input)
-		# print("target:", target)
+		print("B=", B, ", C=", C, ", H=", H, ", W=", W, ", N=", N, sep="")
 		print("input.shape:", input.shape)
 		print("target.shape:", target.shape)
-		# Transpose the input and target sequences to match the Transformer's expected input format
-		# input = input.transpose(0, 1)
-		# target = target.transpose(0, 1)
 		# Initialize the output tensor (i.e. the final image ID prediction), which should have a shape of [B, N, num_classes], i.e. outputs all the classes/digits for each position/digit in the image ID
+		# NOTE: the output will contain the logits for all the possible classes tokens at all the possible digits position, where each digit position only contains the possible digit's logits of the 
+		# 		best previous token, or of the ground truth previous token: this means that taking e.g. the second best token of a digit and then appending the best next token won't make much sense,
+		# 		since the next token would be based on the best previous token, not the second best previous token...
 		output = torch.zeros((B, N-1, self.num_classes), device=self.device)
 		print("output.shape:", output.shape)
 		# Start with the first token (start token) for all the sequences in the batch (shape: [B, 1])
-		target_in = target[:, 0].unsqueeze(1)	# The target_in is the input sequence for the model, i.e. the sequence of tokens that the model should predict
-		print("target_in.shape:", target_in.shape)
+		generated_target = target[:, 0].unsqueeze(1)	# The target_in is the input sequence for the model, i.e. the sequence of tokens that the model should predict
+		print("generated_target.shape:", generated_target.shape)
 		# Iterate over the target sequence to generate the output sequence
 		for i in range(1, N):
 			# Store the next token
 			next_token = None
 			# Check if the autoregressive approach should be used
 			if use_autoregression:
-				# Generate the output using the input and the target sequences, thus relying only on the model's image ID digits predictions (autoregressive approach)
-				print("input.shape (i=", i, "):", input.shape)
-				print("target_in.shape (i=", i, "):", target_in.shape)
-				output_till_now = self(input, target_in)
-				# Get the prediction for the last token
-				last_token_output = output_till_now[-1, :, :].unsqueeze(0)
-				print("last_token_output.shape:", last_token_output.shape)
+				print("input.shape (i=", i, "):", input.shape,sep="")
+				print("generated_target.shape (i=", i, "):", generated_target.shape,sep="")
+				# Compute the next token's logits using the input and the target sequences, thus relying only on the model's image ID digits predictions ("auto-regressive" approach, "AR")
+				classes_predictions_ar = self(input, generated_target)		# Shape: [B, num_classes]
+				print("new_output.shape:", classes_predictions_ar.shape)
+				print("output[:, i - 1].shape:", output[:, i - 1].shape)
 				# Append the last token prediction to the output tensor
-				output[i - 1] = last_token_output.squeeze(0)
-				# Use the last generated best token as the next token of the target_in sequence
-				next_token = torch.argmax(last_token_output, dim=-1)
+				# output[i - 1] = classes_predictions_ar
+				output[:, i - 1] = classes_predictions_ar
+				# Use the last generated best token (i.e. token with the highest logit) as the next token of the generated_target sequence
+				# next_token = torch.argmax(last_token_output, dim=-1)
+				next_token = torch.argmax(classes_predictions_ar, dim=-1).unsqueeze(1)	# Shape: [B, 1]
+				# Append the next token to the generated_target sequence
+				generated_target = torch.cat((generated_target, next_token), dim=0)
 			else:
-				# Get the target sequence up until the current position "i" (for all batches, shape: [B, i])
-				current_target = target[:, :i]
-				print("input.shape (i=", i, "):", input.shape)
-				print("current_target.shape (i=", i, "):", current_target.shape)
-				# Get the ground truth output starting from the input and the actual target sequence (teacher forcing approach)
-				ground_truth_output = self(input, current_target)
-				# Get the ground truth token for the current position "i" in the target sequence
-				ground_truth_token = ground_truth_output[i-1:i, :, :]
-				# Append the ground truth token to the output tensor
-				output[i - 1] = ground_truth_token.squeeze(0)
+				# Get the ground truth target sequence up until the current position "i" (for all batches, shape: [B, i])
+				current_target = target[:, :i]	# Shape: [B, i]
+				print("input.shape (i=", i, "):", input.shape,sep="")
+				print("current_target.shape (i=", i, "):", current_target.shape,sep="")
+				# Compute the next token's logits using the input and the ground truth target sequence ("teacher forcing" approach, "TF")
+				classes_predictions_tf = self(input, current_target)	# Shape: [B, num_classes]
+				print("new_output.shape:", classes_predictions_tf.shape)
+				print("output[:, i - 1].shape:", output[:, i - 1].shape)
+				# Append the tokens to the output tensor
+				# output[i - 1] = classes_predictions_tf
+				output[:, i - 1] = classes_predictions_tf
 				# Use the ground truth token as the next token
-				next_token = torch.argmax(ground_truth_token, dim=-1)
-			# Append the next token to the target_in sequence
-			target_in = torch.cat((target_in, next_token), dim=0)
+				# next_token = torch.argmax(ground_truth_token, dim=-1)
 		# Get the target output, i.e. the complete image ID (excluding the first token, i.e. the start token)
-		target_out = target[1:, :]
+		print("target.shape:", target.shape)
+		# target_out = target[1:, :]
+		target_out = target[:, 1:]	# Shape: [B, N-1]
+		print("target_out.shape:", target_out.shape)
 		# Ensure the target_out tensor is contiguous in memory (to efficiently compute the loss)
 		target_out = target_out.contiguous()
-		# Compute the loss
-		reshaped_output = output.reshape(-1, self.num_classes)
-		reshaped_target_out = target_out.reshape(-1)
+		# Compute the loss as the cross-entropy loss between the output and the target_out tensors, i.e. the predicted image ID and the actual image ID
+		# NOTE: -1 in the "reshape" is a placeholder that makes the final data fit with the other dimensions/shape given
+		reshaped_output = output.reshape(-1, self.num_classes)	# Reshape the output tensor to have a shape of [B*N, num_classes]
+		reshaped_target_out = target_out.reshape(-1)		# Reshape the target_out tensor to have a shape of [B*N]
 		loss = functional.cross_entropy(reshaped_output, reshaped_target_out)
-		# Get the best token prediction (to compute the accuracy) of the last token of the target sequence (i.e. the generated image ID token/digit)
+		# Get the best prediction (to compute the accuracy) for the next token of the target sequence (i.e. the generated image ID token/digit)
 		predictions = torch.argmax(output, dim=-1)
 		# Compute accuracy with masking for padding
 		non_padding_mask = (target_out != self.img_id_padding_token)
@@ -381,7 +393,7 @@ class DSI_ViT(nn.Module):
 		accuracy = torch.tensor(accuracy_value)
 		# Return loss and accuracy (tensors)
 		return loss, accuracy
-	
+
 
 	# Pytorch lightning function to compute the forward pass of the model
 	#   For more details: https://pytorch.org/docs/stable/generated/torch.nn.Transformer.html#torch.nn.Transformer.forward
@@ -410,7 +422,7 @@ class DSI_ViT(nn.Module):
 	# 	# Compute the output of the transformer model
 	# 	output = self.model(input, target, input_mask, target_mask, None, input_padding_mask, target_padding_mask, input_padding_mask)
 
-	# 	# Return the final output of the model 
+	# 	# Return the final output of the model
 	# 	return self.output_layer(output)
 
 
@@ -451,9 +463,14 @@ class AttentionBlock(nn.Module):
 		# inp_x = self.layer_norm_1(x)
 		# x = x + self.attn(inp_x, inp_x, inp_x)[0]
 		# x = x + self.linear(self.layer_norm_2(x))
-		input, padding_mask, attention_mask = x
+		input = x[0]
+		padding_mask = x[1]
+		attention_mask = x[2]
+		print("input.shape:", input.shape)
+		print("padding_mask.shape:", padding_mask.shape)
+		print("attention_mask.shape:", attention_mask.shape)
 		inp_x = self.layer_norm_1(input)
 		input = input + self.attn(inp_x, inp_x, inp_x, key_padding_mask=padding_mask, attn_mask=attention_mask)[0]
-		input = input + self.linear(self.layer_norm_2(x))
+		input = input + self.linear(self.layer_norm_2(input))
 
-		return input
+		return (input, padding_mask, attention_mask)

@@ -33,11 +33,12 @@ random.seed(RANDOM_SEED)
 
 # Whether to print debug information or not (suggest to set to False since a lot of information is printed)
 PRINT_DEBUG = False
-
-# Override the "print" function to print only when necessary
+import builtins
+# Override the "print" function to print only when necessary (or print anyways if "force_print" is given as an argument)
 def print(*args, **kwargs):
-	if PRINT_DEBUG:
-		__builtins__.print(*args, **kwargs)
+	force_print = kwargs.pop("force_print", False)
+	if force_print or PRINT_DEBUG:
+		builtins.print(*args, **kwargs)
 
 # LighningModule Code from the tutorial ==========================================================================================================
 
@@ -168,58 +169,86 @@ class DSI_VisionTransformer(pl.LightningModule):
 		img_id_start_token = retrieval_dataset.img_id_start_token
 		img_id_end_token = retrieval_dataset.img_id_end_token
 		img_id_padding_token = retrieval_dataset.img_id_padding_token
-		image_id_skip_token = -1
+		image_id_skip_token = -1	# This value is set to tokens of image ID sequences that should not be considered for the final top K results (because their predicted softmax probabilities are below a threshold)
 		# Max length of the image IDs
 		img_id_max_length = retrieval_dataset.img_id_max_len	# The maximum number of digits in the image ID plus 2 (for the start and end tokens)
 		# Initialize the output sequence (sequence of image ID tokens, i.e. digits) as a tensor containing only the start token
 		output_sequences = torch.tensor([[img_id_start_token]], dtype=torch.long, device=encoded_image.device)
+		# Initialize the source sequence (image encoding) as the input image tensor
+		source_sequence = encoded_image.unsqueeze(0)	# From shape [C, H, W] to shape [1, C, H, W], where 1 is considered the batch size
 		# Iterate over the maximum length of the sequences (i.e. the number of tokens to generate for each image IDs)
 		for i in range(img_id_max_length):
-			# Source sequence (image encoding) for the transformer model
-			source_sequence = encoded_image.unsqueeze(1).t().repeat(output_sequences.size(0), 1).t()
-			# Get the next tokens logits (no softmax used for the model's output) from the transformer model (list of N floats, with N being the number of possible target tokens, hence the 10 possible digits of document IDs)
-			outputs = self(source_sequence, output_sequences.t())
+			print("> Iteration number", i+1, sep=": ", force_print=True)
+			# Repeat or reduce the source sequence to match the number of sequences in the output_sequences tensor
+			# source_sequence = source_sequence.repeat(output_sequences.size(0), 1, 1, 1)	# Shape: [O, C, H, W], with O being the number of sequences in the output_sequences tensor (i.e. total good image ID sequences kept till now)
+			model_input_source = source_sequence.repeat(output_sequences.size(0), 1, 1, 1)	# Shape: [O, C, H, W], with O being the number of sequences in the output_sequences tensor (i.e. total good image ID sequences kept till now)
+			print("source_sequence.shape:", source_sequence.shape, force_print=True)
+			print("output_sequences.shape:", output_sequences.shape, force_print=True)
+			# Get the next tokens logits (no softmax used for the model's output) from the transformer model (list of N floats, with N being the number of possible target tokens, hence the 10 possible digits of image IDs)
+			outputs = self(model_input_source, output_sequences)
 			# Get the next token to append to each sequence (i.e. the token with the highest probability for each of the k sequences)
+			print("outputs.shape:", outputs.shape, force_print=True)
+			print("outputs:", outputs, force_print=True)
 			sorted_logits, sorted_indices = torch.sort(outputs[-1], descending=True, dim=-1)
+			print("sorted_logits.shape:", sorted_logits.shape, force_print=True)
+			print("sorted_indices.shape:", sorted_indices.shape, force_print=True)
+			print("sorted_indices:", sorted_indices, force_print=True)
 			# Transform the logits into probabilities using the softmax function
 			probabilities = functional.softmax(sorted_logits, dim=-1)
 			# Replace tokens with a probability lower than a threshold with a special token (image_id_skip_token), and keep only the top n tokens
 			max_tokens_to_keep = max(1, (4 - i*2) + int(math.log10(k)))
-			probability_threshold = 1.0 / self.target_tokens
+			probability_threshold = 1.0 / self.hparams.num_classes
 			# Check if all the tokens have a probability lower than the threshold
+			best_digits = None	# Shape: [max_tokens_to_keep]
 			if torch.all(probabilities < probability_threshold):
 				# If all the filtered indices are the image_id_skip_token, keep only the top n tokens
-				filtered_indices = sorted_indices[:, 0: max_tokens_to_keep]
+				best_digits = sorted_indices[: max_tokens_to_keep]
+				print("best_digits.shape:", best_digits.shape, force_print=True)
 			else:
 				# Filter out the tokens with a probability lower than the threshold and keep only the top n tokens
-				filtered_indices = sorted_indices.masked_fill(probabilities < probability_threshold, image_id_skip_token)[:, 0: max_tokens_to_keep]
+				best_digits = sorted_indices.masked_fill(probabilities < probability_threshold, image_id_skip_token)[: max_tokens_to_keep]
+				print("best_digits.shape:", best_digits.shape, force_print=True)
+			# Remove all the best digits that are the image_id_skip_token
+			best_digits = best_digits[best_digits != image_id_skip_token]
 			# Repeat the target sequences to match the number of sequences in the sorted indices tensor
-			output_sequences = output_sequences.repeat(1, filtered_indices.size(1)).view(-1, output_sequences.size(1))
-			# Reshape the sorted indices tensor to match the shape of the target sequences tensor
-			filtered_indices = filtered_indices.flatten().unsqueeze(0).t()
+			print("output_sequences.shape:", output_sequences.shape, force_print=True)
+			print("output_sequences:\n", output_sequences, force_print=True,sep="")
+			print("best_digits.shape:", best_digits.shape, force_print=True)
+			print("best_digits:\n", best_digits, force_print=True,sep="")
+			# output_sequences = output_sequences.repeat(1, best_digits.size(1)).view(-1, output_sequences.size(1))
+			output_sequences = output_sequences.repeat(best_digits.size(0), 1)
+			# Reshape the best digits tensor to match the new target sequences tensor
+			best_digits = best_digits.unsqueeze(1).repeat(1, output_sequences.size(0) // best_digits.size(0)).view(-1, 1)
 			# Concatenate the target sequences with the sorted indices to create the new target sequences
-			output_sequences = torch.cat((output_sequences, filtered_indices), dim=1)
-			# Remove all sequences that have the image_id_skip_token as the last token
-			output_sequences = output_sequences[output_sequences[:, -1] != image_id_skip_token]
-		top_k_image_ids_tokens = output_sequences.tolist()[0: k]
+			print("output_sequences.shape (new):", output_sequences.shape, force_print=True)
+			print("output_sequences (new):\n", output_sequences, force_print=True,sep="")
+			print("best_digits.shape (new):", best_digits.shape, force_print=True)
+			print("best_digits (new):\n", best_digits, force_print=True,sep="")
+			# output_sequences = torch.cat((output_sequences, best_digits), dim=1)
+			output_sequences = torch.cat((output_sequences, best_digits), dim=1)
+			print("output_sequences.shape (final):", output_sequences.shape, force_print=True)
+			print("output_sequences (final):", output_sequences, force_print=True)
+		# Remove all the sequences that only contain the special tokens (i.e. the start and end tokens)
+		top_image_ids_tokens = output_sequences.tolist()
+		print("top_image_ids_tokens:\n", top_image_ids_tokens, force_print=True,sep="")
 		# Convert the top k sequences of image IDs' tokens to a list of k image IDs
-		top_k_image_ids = []
-		for i in range(min(k, len(top_k_image_ids_tokens))):
-			image_id_tokens = top_k_image_ids_tokens[i]
-			# image_id = retrieval_dataset.decode_doc_id(image_id_tokens)
-			image_id = image_id_tokens
-			top_k_image_ids.append(image_id)
+		top_image_ids = []
+		for i in range(min(k, len(top_image_ids_tokens))):
+			image_id_tokens = top_image_ids_tokens[i]
+			image_id = retrieval_dataset.decode_image_id(image_id_tokens)
+			if image_id is not None and len(image_id) > 0:
+				top_image_ids.append(image_id)
 		# Remove duplicate image IDs
-		top_k_image_ids = list(set(top_k_image_ids))
+		top_image_ids = list(set(top_image_ids))
 		# Refill the list to have k image IDs
-		# use_debug_form_for_refilled_doc_ids = False
-		# image_ids_to_add = retrieval_dataset.get_similar_doc_ids(k - len(top_k_image_ids), target_doc_ids=top_k_image_ids)
-		# if use_debug_form_for_refilled_doc_ids:
-		# 	top_k_image_ids = top_k_image_ids + ["R=" + doc_id for doc_id in image_ids_to_add]
-		# else:
-		# 	top_k_image_ids = top_k_image_ids + image_ids_to_add
+		use_debug_form_for_refilled_img_ids = True
+		image_ids_to_add = retrieval_dataset.get_similar_image_ids(k - len(top_image_ids), target_image_ids=top_image_ids)
+		if use_debug_form_for_refilled_img_ids:
+			top_image_ids = top_image_ids + ["R=" + image_id for image_id in image_ids_to_add]
+		else:
+			top_image_ids = top_image_ids + image_ids_to_add 
 		# Return the top k image IDs
-		return top_k_image_ids
+		return top_image_ids[0: k]
 
 
 
@@ -434,7 +463,7 @@ class DSI_ViT(nn.Module):
 	# Auxiliary function for both the training and valdiation steps (to compute the loss and accuracy)
 	def step(self, batch : tuple[torch.Tensor, torch.Tensor], use_autoregression=False):
 		'''
-		Generate the output document ID using an autoregressive approach (i.e. generate the sequence token by token using the model's own predictions) or using the teacher forcing approach (i.e. use the actual target sequence as input to the model)
+		Generate the output image ID using an autoregressive approach (i.e. generate the sequence token by token using the model's own predictions) or using the teacher forcing approach (i.e. use the actual target sequence as input to the model)
 
 		Returns the loss and accuracy of the model for the given batch
 		'''

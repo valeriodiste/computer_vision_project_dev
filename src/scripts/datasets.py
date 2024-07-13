@@ -122,6 +122,7 @@ class TransformerIndexingDataset(Dataset):
 						'encoded_images': [img.tolist() for img in encoded_images],
 						'encoded_image_ids': [img_id.tolist() for img_id in encoded_image_ids]
 					}, f)
+				print(f"Saved {len(encoded_images)} images to {self.save_dataset_file_path}")
 			# Return the encoded images and image IDs
 			return encoded_images, encoded_image_ids
 
@@ -232,6 +233,7 @@ class TransformerImageRetrievalDataset(Dataset):
 						'encoded_images': [img.tolist() for img in encoded_images],
 						'encoded_image_ids': [img_id.tolist() for img_id in encoded_relevant_image_ids]
 					}, f)
+				print(f"Saved {len(encoded_images)} images to {self.save_dataset_file_path}")
 			# Return the encoded images and image IDs
 			return encoded_images, encoded_relevant_image_ids
 

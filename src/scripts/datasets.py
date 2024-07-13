@@ -88,6 +88,11 @@ class TransformerIndexingDataset(Dataset):
 			# Initialize the encoded images and image IDs lists
 			encoded_image_ids = []
 			encoded_images = []
+			# Initialize the dictionary to save the image IDs of the images in the database
+			save_dict = {
+				'encoded_images': [],
+				'encoded_image_ids': []
+			}
 			# For each image in the images list
 			image_ids = range(len(self.images))
 			for image_id in tqdm(image_ids, desc='Building TransformerIndexingDataset'):
@@ -114,14 +119,19 @@ class TransformerIndexingDataset(Dataset):
 				# Add the encoded image and image ID to the lists
 				encoded_images.append(encoded_img)
 				encoded_image_ids.append(encoded_img_id)
+				# Add the encoded image and image ID to the save dictionary
+				if self.save_dataset_file_path is not None:
+					save_dict['encoded_images'].append(encoded_img.tolist())
+					save_dict['encoded_image_ids'].append(encoded_img_id.tolist())
 			# Save the dataset to the file if a save file path is provided
 			if self.save_dataset_file_path is not None:
 				print(f"Saving the Vision Transformer Indexing Dataset to {self.save_dataset_file_path}...")
 				with open(self.save_dataset_file_path, 'w') as f:
-					json.dump({
-						'encoded_images': [img.tolist() for img in encoded_images],
-						'encoded_image_ids': [img_id.tolist() for img_id in encoded_image_ids]
-					}, f)
+					# json.dump({
+					# 	'encoded_images': [img.tolist() for img in encoded_images],
+					# 	'encoded_image_ids': [img_id.tolist() for img_id in encoded_image_ids]
+					# }, f)
+					json.dump(save_dict, f)
 				print(f"Saved {len(encoded_images)} images to {self.save_dataset_file_path}")
 			# Return the encoded images and image IDs
 			return encoded_images, encoded_image_ids
@@ -195,6 +205,11 @@ class TransformerImageRetrievalDataset(Dataset):
 			# Initialize the encoded images and image IDs lists
 			encoded_relevant_image_ids = []
 			encoded_images = []
+			# Initialize the dictionary to save the image IDs of the images in the database
+			save_dict = {
+				'encoded_images': [],
+				'encoded_image_ids': []
+			}
 			# For each image in the images similarity dictionary
 			similar_image_ids = self.similar_images.keys()
 			for similar_image_id in tqdm(similar_image_ids, desc='Building TransformerImageRetrievalDataset'):
@@ -225,14 +240,19 @@ class TransformerImageRetrievalDataset(Dataset):
 					# Add the encoded image and image ID to the lists
 					encoded_images.append(encoded_img)
 					encoded_relevant_image_ids.append(encoded_img_id)
+					# Add the encoded image and image ID to the save dictionary
+					if self.save_dataset_file_path is not None:
+						save_dict['encoded_images'].append(encoded_img.tolist())
+						save_dict['encoded_image_ids'].append(encoded_img_id.tolist())
 			# Save the dataset to the file if a save file path is provided
 			if self.save_dataset_file_path is not None:
 				print(f"Saving the Vision Transformer Image Retrieval Dataset to {self.save_dataset_file_path}...")
 				with open(self.save_dataset_file_path, 'w') as f:
-					json.dump({
-						'encoded_images': [img.tolist() for img in encoded_images],
-						'encoded_image_ids': [img_id.tolist() for img_id in encoded_relevant_image_ids]
-					}, f)
+					# json.dump({
+					# 	'encoded_images': [img.tolist() for img in encoded_images],
+					# 	'encoded_image_ids': [img_id.tolist() for img_id in encoded_relevant_image_ids]
+					# }, f)
+					json.dump(save_dict, f)
 				print(f"Saved {len(encoded_images)} images to {self.save_dataset_file_path}")
 			# Return the encoded images and image IDs
 			return encoded_images, encoded_relevant_image_ids

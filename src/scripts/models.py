@@ -64,12 +64,12 @@ class DSI_VisionTransformer(pl.LightningModule):
 
 	def configure_optimizers(self):
 		# Use the normal adam optimizer with the learning rate specified in the model's hyperparameters
+		# optimizer = None
 		# optimizer = optim.AdamW(self.parameters(), lr=self.hparams.learning_rate)
-		# optimizer = optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
-		optimizer = None
+		optimizer = optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
 		# Don't use any learning rate scheduler for now
-		# lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
 		lr_scheduler = None
+		# lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
 		if lr_scheduler is not None:
 			return [optimizer], [lr_scheduler]
 		elif optimizer is not None:

@@ -63,18 +63,19 @@ class DSI_VisionTransformer(pl.LightningModule):
 		return self.model(imgs, ids)
 
 	def configure_optimizers(self):
-		# optimizer = optim.AdamW(self.parameters(), lr=self.hparams.learning_rate)
-		# lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
-		# Use the AdamW optimizer with the learning rate specified in the model's hyperparameters
-		# optimizer = optim.AdamW(self.parameters(), lr=self.hparams.learning_rate)
 		# Use the normal adam optimizer with the learning rate specified in the model's hyperparameters
-		optimizer = optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
+		# optimizer = optim.AdamW(self.parameters(), lr=self.hparams.learning_rate)
+		# optimizer = optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
+		optimizer = None
 		# Don't use any learning rate scheduler for now
+		# lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
 		lr_scheduler = None
 		if lr_scheduler is not None:
 			return [optimizer], [lr_scheduler]
-		else:
+		elif optimizer is not None:
 			return optimizer
+		else:
+			return None
 
 	# def _calculate_loss(self, batch, mode="train"):
 	# 	imgs, labels = batch

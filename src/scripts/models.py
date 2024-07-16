@@ -321,23 +321,23 @@ class DSI_ViT(nn.Module):
 			num_channels * (patch_size**2), # Input size: number of channels (3 if RGB is used) times the number of total pixels in a patch (i.e. the size of the patch)
 			embed_dim
 		)
-		# self.transformer = nn.Sequential(
-		# 	# Add the specified number of Attention Blocks to the Transformer ("num_layers" times)
-		# 	*(AttentionBlock(embed_dim, hidden_dim, num_heads, dropout=dropout) for _ in range(num_layers))
-		# )
 		self.id_embedding = nn.Embedding(	# Embedding layer for the image ID digits (the 10 digits [0-9] plus the 3 special tokens, i.e. end of sequence, padding, start of sequence)
 			num_classes, # The maximum number of digits in the image ID
 			embed_dim,
 			padding_idx=img_id_padding_token	# The padding index is the index of the digit that represents the padding (i.e. the digit that is used to pad the image ID to the maximum length)
 		)
-		self.transformer = nn.Transformer(
-			d_model=embed_dim,
-			nhead=num_heads,
-			num_encoder_layers=num_layers,
-			num_decoder_layers=num_layers,
-			dim_feedforward=hidden_dim,
-			dropout=dropout
+		self.transformer = nn.Sequential(
+			# Add the specified number of Attention Blocks to the Transformer ("num_layers" times)
+			*(AttentionBlock(embed_dim, hidden_dim, num_heads, dropout=dropout) for _ in range(num_layers))
 		)
+		# self.transformer = nn.Transformer(
+		# 	d_model=embed_dim,
+		# 	nhead=num_heads,
+		# 	num_encoder_layers=num_layers,
+		# 	num_decoder_layers=num_layers,
+		# 	dim_feedforward=hidden_dim,
+		# 	dropout=dropout
+		# )
 		self.mlp_head = nn.Sequential(
 			nn.LayerNorm(embed_dim),
 			nn.Linear(embed_dim, num_classes)

@@ -32,7 +32,7 @@ torch.manual_seed(RANDOM_SEED)
 random.seed(RANDOM_SEED)
 
 # Whether to print debug information or not (suggest to set to False since a lot of information is printed)
-PRINT_DEBUG_MIN_LEVEL = 2	# For the overridden "print" function, prints only if the "force_print" argument is a value greater than or equal to this value (set to -1 to always print debug messages)
+PRINT_DEBUG_MIN_LEVEL = 3	# For the overridden "print" function, prints only if the "force_print" argument is a value greater than or equal to this value (set to -1 to always print debug messages)
 import builtins
 # Override the "print" function to print only when necessary (or print anyways if "force_print" is given as an argument)
 def print(*args, **kwargs):
@@ -612,7 +612,8 @@ class DSI_ViT(nn.Module):
 class AttentionBlock(nn.Module):
 
 	def __init__(self, embed_dim, hidden_dim, num_heads, dropout=0.0):
-		"""Attention Block.
+		"""
+		Custom attention block for the vision transformer.
 
 		Args:
 			embed_dim: Dimensionality of input and attention feature vectors

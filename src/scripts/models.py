@@ -434,9 +434,9 @@ class DSI_ViT(nn.Module):
 		mask_token = -1
 		masking_sequence = []
 		if M < N:
-			# masking_sequence = torch.full((B, N - M, self.embed_dim), mask_token, dtype=torch.long, device=self.device)
-			# x_src = torch.cat([x_src, masking_sequence], dim=1)
-			masking_sequence
+			masking_sequence = torch.full((B, N - M, self.embed_dim), mask_token, dtype=torch.long, device=self.device)
+			x_src = torch.cat([x_src, masking_sequence], dim=1)
+			# masking_sequence
 		if M > N:
 			x_src = x_src[:, : N]
 

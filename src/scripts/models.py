@@ -481,7 +481,6 @@ class DSI_ViT(nn.Module):
 		out = self.mlp_head(encoded_digit) 	# The output is the result of the final MLP head (i.e. the classification layer), hence is a tensor of shape [B, num_classes]
 		print("out.shape:", out.shape, force_print=2)
 
-		raise Exception("STOP HERE...")
 
 		return out	# Return the logits for the next image ID digit prediction, with N possible classes (10 digits + 3 special tokens)
 

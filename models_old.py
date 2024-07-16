@@ -89,19 +89,6 @@ class DSI_ViT(pl.LightningModule):
 		# Store the padding token (11 is used for the document ID padding token)
 		self.doc_id_padding_token = 11
 		# Store the model (Transformer model with the specified hyperparameters)
-		'''
-		self.model = VisionTransformer(
-			image_size=64,
-			patch_size=16,
-			num_layers=layers,
-			num_heads=transformer_heads,
-			hidden_dim=embeddings_size,
-			mlp_dim=embeddings_size,
-			dropout=dropout,
-			attention_dropout=dropout,
-			num_classes=target_tokens
-		)
-		'''
 		self.model = Transformer(
 			# Number of expected features in the encoder/decoder inputs
 			d_model=embeddings_size,

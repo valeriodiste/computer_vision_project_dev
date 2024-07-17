@@ -465,7 +465,7 @@ class DSI_ViT(nn.Module):
 
 		# Apply Transforrmer
 		x_src = self.dropout(x_src)
-		x_src = x_src.float()	# Convert the input tensor to a float tensor
+		# x_src = x_src.float()	# Convert the input tensor to a float tensor
 		x_src = x_src.transpose(0, 1)
 		transformer_input = (x_src, padding_mask, attention_mask)	# The first "attention block" layer of the transformer expects a tuple of three elements: the input tensor, the padding mask, and the attention mask
 		ret_tuple = self.transformer(transformer_input)	# Tuple of three elements: the output tensor, the padding mask, and the attention mask

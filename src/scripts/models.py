@@ -459,7 +459,7 @@ class DSI_ViT(nn.Module):
 		# Get a mask for the attention mechanism (i.e. mask the future tokens) from the masking sequence
 		# - The mask is True for the future tokens and False for the other tokens
 		# - The mask is used to avoid the Transformer to consider the future tokens in the computation
-		attention_mask = self.transformer.generate_square_subsequent_mask(T + N, device=self.device)
+		attention_mask = nn.Transformer.generate_square_subsequent_mask(T + N, device=self.device)	# Should be a 2D tensor of shape [T + N, T + N] (T is the total number of patches in the image and N is the maximum number of digits in the image ID)
 		# attention_mask = torch.full((T + N, T + N), False, dtype=torch.bool, device=self.device)
 		# attention_mask = torch.triu(attention_mask, diagonal=1)	# Set to True all the elements above the diagonal (i.e. the future tokens)
 

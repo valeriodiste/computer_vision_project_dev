@@ -433,6 +433,8 @@ class DSI_ViT(nn.Module):
 		padding_sequence = None
 		if M < N:
 			padding_sequence = torch.full((B, N - M, self.embed_dim), self.img_id_padding_token, dtype=torch.float, device=self.device)
+			x.to(self.device, dtype=torch.float)
+			padding_sequence.to(self.device, dtype=torch.float)
 			x = torch.cat([x, padding_sequence], dim=1)
 		if M > N:
 			x = x[:, : N]

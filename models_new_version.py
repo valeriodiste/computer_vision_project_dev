@@ -32,7 +32,7 @@ torch.manual_seed(RANDOM_SEED)
 random.seed(RANDOM_SEED)
 
 # Whether to print debug information or not (suggest to set to False since a lot of information is printed)
-PRINT_DEBUG_MIN_LEVEL = 3	# For the overridden "print" function, prints only if the "force_print" argument is a value greater than or equal to this value (set to -1 to always print debug messages)
+PRINT_DEBUG_MIN_LEVEL = 2	# For the overridden "print" function, prints only if the "force_print" argument is a value greater than or equal to this value (set to -1 to always print debug messages)
 import builtins
 # Override the "print" function to print only when necessary (or print anyways if "force_print" is given as an argument)
 def print(*args, **kwargs):
@@ -326,18 +326,18 @@ class DSI_ViT(nn.Module):
 			embed_dim,
 			padding_idx=img_id_padding_token	# The padding index is the index of the digit that represents the padding (i.e. the digit that is used to pad the image ID to the maximum length)
 		)
-		self.transformer = nn.Sequential(
-			# Add the specified number of Attention Blocks to the Transformer ("num_layers" times)
-			*(AttentionBlock(embed_dim, hidden_dim, num_heads, dropout=dropout) for _ in range(num_layers))
-		)
-		# self.transformer = nn.Transformer(
-		# 	d_model=embed_dim,
-		# 	nhead=num_heads,
-		# 	num_encoder_layers=num_layers,
-		# 	num_decoder_layers=num_layers,
-		# 	dim_feedforward=hidden_dim,
-		# 	dropout=dropout
+		# self.transformer = nn.Sequential(
+		# 	# Add the specified number of Attention Blocks to the Transformer ("num_layers" times)
+		# 	*(AttentionBlock(embed_dim, hidden_dim, num_heads, dropout=dropout) for _ in range(num_layers))
 		# )
+		self.transformer = nn.Transformer(
+			d_model=embed_dim,
+			nhead=num_heads,
+			num_encoder_layers=num_layers,
+			num_decoder_layers=num_layers,
+			dim_feedforward=hidden_dim,
+			dropout=dropout
+		)
 		self.mlp_head = nn.Sequential(
 			nn.LayerNorm(embed_dim),
 			nn.Linear(embed_dim, num_classes)
@@ -375,7 +375,7 @@ class DSI_ViT(nn.Module):
 		x = x.float()
 		return x
 
-	def forward(self, imgs, ids):
+	def forward(self, imgs : torch.Tensor, ids : torch.Tensor):
 		'''
 			Expects as input a tensor of B images and a tensor of B image IDs (with B size of the batch, i.e. number of <image, image ID> pairs in the batch)
 
@@ -417,9 +417,9 @@ class DSI_ViT(nn.Module):
 		# - ids size: [B, M, embed_dim]
 		# print("imgs.shape:", imgs.shape)
 		# print("ids.shape:", ids.shape)
-		x_src = torch.cat([imgs, ids], dim=1)
-		# x_src = imgs	# Shape: [B, T, embed_dim]
-		# x_tgt = ids		# Shape: [B, M, embed_dim]
+		# x_src = torch.cat([imgs, ids], dim=1)
+		x_src = imgs	# Shape: [B, T, embed_dim]
+		x_tgt = ids		# Shape: [B, M, embed_dim]
 
 		# print("x.shape (1):", x_src.shape)
 
@@ -435,33 +435,35 @@ class DSI_ViT(nn.Module):
 		masking_sequence = []
 		if M < N:
 			masking_sequence = torch.full((B, N - M, self.embed_dim), mask_token, dtype=torch.long, device=self.device)
-			x_src = torch.cat([x_src, masking_sequence], dim=1)
+			x_tgt = torch.cat([x_tgt, masking_sequence], dim=1)
 		if M > N:
-			x_src = x_src[:, : N]
+			x_tgt = x_tgt[:, : N]
 
 		# Add positional encoding at the end of each sequence
 		# x = x + self.pos_embedding[:, : T + 1 + M]	# Add positional encoding at the end of the sequence
-		x_src = x_src + self.pos_embedding[:, : T + N]	# Add positional encoding at the end of the sequence
+		# x_src = x_src + self.pos_embedding[:, : T + N]	# Add positional encoding at the end of the sequence
+		x_src = x_src + self.pos_embedding[:, : T]	# Add positional encoding at the end of the sequence
+		x_tgt = x_tgt + self.pos_embedding[:, : N]	# Add positional encoding at the end of the sequence
 
 		# NOTE: current shape of x is [B, T + N, embed_dim]
 
-		print("x.shape (2):", x_src.shape)
+		# print("x.shape (2):", x_src.shape)
+		print("x_src.shape:", x_src.shape, force_print=2)
+		print("x_tgt.shape:", x_tgt.shape, force_print=2)
 
 		# Get a mask for the image ID embeddings
 		# - The mask is True for the padding tokens and False for the other tokens
 		# - The mask is used to avoid the Transformer to consider the padding tokens in the computation
 		# padding_mask = (ids == self.img_id_padding_token)
 		# padding_mask = (x == mask_token)	# Should be a 2D tensor of shape [B, T + N] (T is the total number of patches in the image and N is the maximum number of digits in the image ID)
-		padding_mask = torch.full((B, T + N), False, dtype=torch.bool, device=self.device)
-		padding_mask[:, T + M:] = True
+		padding_mask = torch.full((B, N), False, dtype=torch.bool, device=self.device)
+		padding_mask[:, M:] = True
 		print("padding_mask.shape:", padding_mask.shape)
 
 		# Get a mask for the attention mechanism (i.e. mask the future tokens) from the masking sequence
 		# - The mask is True for the future tokens and False for the other tokens
 		# - The mask is used to avoid the Transformer to consider the future tokens in the computation
-		attention_mask = self.transformer.generate_square_subsequent_mask(T + N, device=self.device)
-		# attention_mask = torch.full((T + N, T + N), False, dtype=torch.bool, device=self.device)
-		# attention_mask = torch.triu(attention_mask, diagonal=1)	# Set to True all the elements above the diagonal (i.e. the future tokens)
+		attention_mask = nn.Transformer.generate_square_subsequent_mask(T + N, device=self.device)	# Should be a 2D tensor of shape [T + N, T + N] (T is the total number of patches in the image and N is the maximum number of digits in the image ID)
 
 		# Apply Transforrmer
 		x_src = self.dropout(x_src)

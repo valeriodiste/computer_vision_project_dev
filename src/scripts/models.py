@@ -417,11 +417,8 @@ class DSI_ViT(nn.Module):
 		# - ids size: [B, M, embed_dim]
 		# print("imgs.shape:", imgs.shape)
 		# print("ids.shape:", ids.shape)
-		x_src = torch.cat([imgs, ids], dim=1)
-		# x_src = imgs	# Shape: [B, T, embed_dim]
-		# x_tgt = ids		# Shape: [B, M, embed_dim]
-
-		# print("x.shape (1):", x_src.shape)
+		x = torch.cat([imgs, ids], dim=1)
+		x.to(self.device)
 
 		# Add CLS token (classification token) and positional encoding (to the end of the sequence)
 		# cls_token = self.cls_token.repeat(B, 1, 1)
@@ -435,17 +432,16 @@ class DSI_ViT(nn.Module):
 		masking_sequence = []
 		if M < N:
 			masking_sequence = torch.full((B, N - M, self.embed_dim), mask_token, dtype=torch.long, device=self.device)
-			x_src = torch.cat([x_src, masking_sequence], dim=1)
+			x = torch.cat([x, masking_sequence], dim=1)
 		if M > N:
-			x_src = x_src[:, : N]
+			x = x[:, : N]
 
 		# Add positional encoding at the end of each sequence
-		# x = x + self.pos_embedding[:, : T + 1 + M]	# Add positional encoding at the end of the sequence
-		x_src = x_src + self.pos_embedding[:, : T + N]	# Add positional encoding at the end of the sequence
+		x = x + self.pos_embedding[:, : T + N]	# Add positional encoding at the end of the sequence
 
 		# NOTE: current shape of x is [B, T + N, embed_dim]
 
-		print("x.shape (2):", x_src.shape)
+		print("x.shape (2):", x.shape)
 
 		# Get a mask for the image ID embeddings
 		# - The mask is True for the padding tokens and False for the other tokens
@@ -464,20 +460,20 @@ class DSI_ViT(nn.Module):
 		# attention_mask = torch.triu(attention_mask, diagonal=1)	# Set to True all the elements above the diagonal (i.e. the future tokens)
 
 		# Apply Transforrmer
-		x_src = self.dropout(x_src)
+		x = self.dropout(x)
 		# x_src = x_src.float()	# Convert the input tensor to a float tensor
-		x_src = x_src.transpose(0, 1)
-		transformer_input = (x_src, padding_mask, attention_mask)	# The first "attention block" layer of the transformer expects a tuple of three elements: the input tensor, the padding mask, and the attention mask
+		x = x.transpose(0, 1)
+		transformer_input = (x, padding_mask, attention_mask)	# The first "attention block" layer of the transformer expects a tuple of three elements: the input tensor, the padding mask, and the attention mask
 		ret_tuple = self.transformer(transformer_input)	# Tuple of three elements: the output tensor, the padding mask, and the attention mask
-		x_src = ret_tuple[0].transpose(0, 1)	# The output tensor is the first element of the tuple, hence we transpose it to have the shape [B, T + N, embed_dim]
+		x = ret_tuple[0].transpose(0, 1)	# The output tensor is the first element of the tuple, hence we transpose it to have the shape [B, T + N, embed_dim]
 
-		print("x.shape (3):", x_src.shape, force_print=2)
+		print("x.shape (3):", x.shape, force_print=2)
 
-		print("x:", x_src, force_print=2)
+		print("x:", x, force_print=2)
 
 		# Perform classification prediction
 		# 	The last element of the output is the "class" token, i.e. in this case the last token of the image ID (the predicted token digit given an image and the start digits of the token ID)
-		encoded_digit = x_src[:, -1, :]		# Shape: [B, embed_dim]
+		encoded_digit = x[:, -1, :]		# Shape: [B, embed_dim]
 		print("digit.shape:", encoded_digit.shape, force_print=2)
 		out = self.mlp_head(encoded_digit) 	# The output is the result of the final MLP head (i.e. the classification layer), hence is a tensor of shape [B, num_classes]
 		print("out.shape:", out.shape, force_print=2)

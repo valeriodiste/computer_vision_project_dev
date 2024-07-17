@@ -418,21 +418,22 @@ class DSI_ViT(nn.Module):
 		# print("imgs.shape:", imgs.shape)
 		# print("ids.shape:", ids.shape)
 		x = torch.cat([imgs, ids], dim=1)
-		x.to(self.device)
+		
+		# Convert the input tensor to a float tensor and move it to the device
+		x.to(self.device, dtype=torch.float)
 
 		# Add CLS token (classification token) and positional encoding (to the end of the sequence)
 		# cls_token = self.cls_token.repeat(B, 1, 1)
 		# # x = torch.cat([cls_token, x], dim=1)
 		# x = torch.cat([x, cls_token], dim=1)
 
-		# Complete the image ID embeddings with masking tokens
-		# - If the image ID has less than the maximum number of digits, mask the remaining digits
+		# Complete the image ID embeddings with padding tokens
+		# - If the image ID has less than the maximum number of digits, pad the remaining digits
 		# - If the image ID has more digits than the maximum number of digits, truncate it
-		mask_token = -1
-		masking_sequence = []
+		padding_sequence = None
 		if M < N:
-			masking_sequence = torch.full((B, N - M, self.embed_dim), mask_token, dtype=torch.long, device=self.device)
-			x = torch.cat([x, masking_sequence], dim=1)
+			padding_sequence = torch.full((B, N - M, self.embed_dim), self.img_id_padding_token, dtype=torch.float, device=self.device)
+			x = torch.cat([x, padding_sequence], dim=1)
 		if M > N:
 			x = x[:, : N]
 
